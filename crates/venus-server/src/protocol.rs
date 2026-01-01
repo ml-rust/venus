@@ -88,6 +88,12 @@ pub enum ClientMessage {
         /// Direction to move.
         direction: MoveDirection,
     },
+
+    /// Undo the last cell management operation.
+    Undo,
+
+    /// Redo the last undone operation.
+    Redo,
 }
 
 /// Messages sent from server to client.
@@ -220,6 +226,38 @@ pub enum ServerMessage {
         output: Option<CellOutput>,
         /// Cells that are now dirty (need re-execution).
         dirty_cells: Vec<CellId>,
+    },
+
+    /// Undo operation result.
+    UndoResult {
+        /// Whether the undo succeeded.
+        success: bool,
+        /// Error message if undo failed.
+        error: Option<String>,
+        /// Description of what was undone (e.g., "Deleted cell 'foo'").
+        description: Option<String>,
+    },
+
+    /// Redo operation result.
+    RedoResult {
+        /// Whether the redo succeeded.
+        success: bool,
+        /// Error message if redo failed.
+        error: Option<String>,
+        /// Description of what was redone.
+        description: Option<String>,
+    },
+
+    /// Current undo/redo state (sent after each operation).
+    UndoRedoState {
+        /// Whether undo is available.
+        can_undo: bool,
+        /// Whether redo is available.
+        can_redo: bool,
+        /// Description of what will be undone (for UI tooltip).
+        undo_description: Option<String>,
+        /// Description of what will be redone (for UI tooltip).
+        redo_description: Option<String>,
     },
 }
 

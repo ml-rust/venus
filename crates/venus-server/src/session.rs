@@ -20,6 +20,7 @@ use venus_core::paths::NotebookDirs;
 
 use crate::error::{ServerError, ServerResult};
 use crate::protocol::{CellOutput, CellState, CellStatus, DependencyEdge, ServerMessage};
+use crate::undo::{UndoManager, UndoableOperation};
 use venus_core::state::BoxedOutput;
 
 /// Shared interrupt flag that can be checked without locks.
@@ -93,6 +94,9 @@ pub struct NotebookSession {
 
     /// Current history index per cell.
     cell_history_index: HashMap<CellId, usize>,
+
+    /// Undo/redo manager for cell operations.
+    undo_manager: UndoManager,
 }
 
 /// Maximum number of history entries per cell.
@@ -159,6 +163,7 @@ impl NotebookSession {
             widget_defs: HashMap::new(),
             cell_output_history: HashMap::new(),
             cell_history_index: HashMap::new(),
+            undo_manager: UndoManager::new(),
         };
 
         session.reload()?;
@@ -493,12 +498,10 @@ impl NotebookSession {
 
         for cell_id in order {
             // Check timeout before each cell
-            if let Some(max_duration) = timeout {
-                if start.elapsed() > max_duration {
-                    self.executor.abort();
-                    self.broadcast(ServerMessage::ExecutionAborted { cell_id: Some(cell_id) });
-                    return Err(ServerError::ExecutionTimeout);
-                }
+            if timeout.is_some_and(|max_duration| start.elapsed() > max_duration) {
+                self.executor.abort();
+                self.broadcast(ServerMessage::ExecutionAborted { cell_id: Some(cell_id) });
+                return Err(ServerError::ExecutionTimeout);
             }
 
             self.execute_cell(cell_id).await?;
@@ -650,7 +653,7 @@ impl NotebookSession {
             timestamp,
         };
 
-        let history = self.cell_output_history.entry(cell_id).or_insert_with(Vec::new);
+        let history = self.cell_output_history.entry(cell_id).or_default();
         history.push(entry);
 
         // Trim if too long
@@ -733,6 +736,12 @@ impl NotebookSession {
         let new_name = editor.insert_cell(after_name.as_deref())?;
         editor.save()?;
 
+        // Record for undo (with position for redo)
+        self.undo_manager.record(UndoableOperation::InsertCell {
+            cell_name: new_name.clone(),
+            after_cell_name: after_name,
+        });
+
         // File watcher will trigger reload, but we can also reload now
         // to ensure immediate consistency
         self.reload()?;
@@ -753,8 +762,20 @@ impl NotebookSession {
 
         // Load and edit the source file
         let mut editor = SourceEditor::load(&self.path)?;
+
+        // Capture source and position before deletion (for undo)
+        let source = editor.get_cell_source(&cell_name)?;
+        let after_cell_name = editor.get_previous_cell_name(&cell_name)?;
+
         editor.delete_cell(&cell_name)?;
         editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::DeleteCell {
+            cell_name: cell_name.clone(),
+            source,
+            after_cell_name,
+        });
 
         // Reload to update in-memory state
         self.reload()?;
@@ -779,6 +800,12 @@ impl NotebookSession {
         let new_name = editor.duplicate_cell(&cell_name)?;
         editor.save()?;
 
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::DuplicateCell {
+            original_cell_name: cell_name,
+            new_cell_name: new_name.clone(),
+        });
+
         // Reload to update in-memory state
         self.reload()?;
 
@@ -801,10 +828,121 @@ impl NotebookSession {
         editor.move_cell(&cell_name, direction)?;
         editor.save()?;
 
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::MoveCell {
+            cell_name,
+            direction,
+        });
+
         // Reload to update in-memory state
         self.reload()?;
 
         Ok(())
+    }
+
+    /// Undo the last cell management operation.
+    ///
+    /// Returns a description of what was undone, or an error if undo failed.
+    pub fn undo(&mut self) -> ServerResult<String> {
+        let operation = self.undo_manager.pop_undo()
+            .ok_or_else(|| ServerError::InvalidOperation("Nothing to undo".to_string()))?;
+
+        let description = operation.undo_description();
+
+        // Execute the reverse operation
+        let mut editor = SourceEditor::load(&self.path)?;
+
+        match &operation {
+            UndoableOperation::InsertCell { cell_name, .. } => {
+                // Undo insert = delete
+                editor.delete_cell(cell_name)?;
+            }
+            UndoableOperation::DeleteCell { source, after_cell_name, .. } => {
+                // Undo delete = restore
+                editor.restore_cell(source, after_cell_name.as_deref())?;
+            }
+            UndoableOperation::DuplicateCell { new_cell_name, .. } => {
+                // Undo duplicate = delete the new cell
+                editor.delete_cell(new_cell_name)?;
+            }
+            UndoableOperation::MoveCell { cell_name, direction } => {
+                // Undo move = move in opposite direction
+                let reverse_direction = match direction {
+                    MoveDirection::Up => MoveDirection::Down,
+                    MoveDirection::Down => MoveDirection::Up,
+                };
+                editor.move_cell(cell_name, reverse_direction)?;
+            }
+        }
+
+        editor.save()?;
+
+        // Record for redo
+        self.undo_manager.record_redo(operation);
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(description)
+    }
+
+    /// Redo the last undone operation.
+    ///
+    /// Returns a description of what was redone, or an error if redo failed.
+    pub fn redo(&mut self) -> ServerResult<String> {
+        let operation = self.undo_manager.pop_redo()
+            .ok_or_else(|| ServerError::InvalidOperation("Nothing to redo".to_string()))?;
+
+        let description = operation.description();
+
+        // Execute the original operation
+        let mut editor = SourceEditor::load(&self.path)?;
+
+        match &operation {
+            UndoableOperation::InsertCell { after_cell_name, .. } => {
+                // Re-insert at the original position
+                let _ = editor.insert_cell(after_cell_name.as_deref())?;
+            }
+            UndoableOperation::DeleteCell { cell_name, .. } => {
+                // Redo delete = delete again
+                editor.delete_cell(cell_name)?;
+            }
+            UndoableOperation::DuplicateCell { original_cell_name, .. } => {
+                // Redo duplicate = duplicate again (new name will be generated)
+                let _ = editor.duplicate_cell(original_cell_name)?;
+            }
+            UndoableOperation::MoveCell { cell_name, direction } => {
+                // Redo move = move in same direction
+                editor.move_cell(cell_name, *direction)?;
+            }
+        }
+
+        editor.save()?;
+
+        // Record for undo (so we can undo the redo)
+        self.undo_manager.record(operation);
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(description)
+    }
+
+    /// Get the current undo/redo state.
+    pub fn get_undo_redo_state(&self) -> ServerMessage {
+        ServerMessage::UndoRedoState {
+            can_undo: self.undo_manager.can_undo(),
+            can_redo: self.undo_manager.can_redo(),
+            undo_description: self.undo_manager.undo_description(),
+            redo_description: self.undo_manager.redo_description(),
+        }
+    }
+
+    /// Clear undo/redo history.
+    ///
+    /// Called when the file is externally modified.
+    pub fn clear_undo_history(&mut self) {
+        self.undo_manager.clear();
     }
 }
 

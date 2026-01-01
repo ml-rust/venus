@@ -191,6 +191,32 @@ html, body {
     color: white;
 }
 
+/* Undo/Redo buttons */
+.btn-undo,
+.btn-redo {
+    opacity: 0.8;
+    transition: opacity 0.2s ease;
+}
+
+.btn-undo:hover:not(:disabled),
+.btn-redo:hover:not(:disabled) {
+    opacity: 1;
+}
+
+.btn-undo:disabled,
+.btn-redo:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Toolbar divider */
+.toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border-primary);
+    margin: 0 0.5rem;
+}
+
 .btn-close {
     background: transparent;
     border: none;

@@ -485,9 +485,11 @@ async fn handle_client_message(
                         error: None,
                     }).await;
 
-                    // Broadcast updated state to all clients
+                    // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
                     session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
                 }
                 Err(e) => {
                     send_message(sender, &ServerMessage::CellInserted {
@@ -509,9 +511,11 @@ async fn handle_client_message(
                         error: None,
                     }).await;
 
-                    // Broadcast updated state to all clients
+                    // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
                     session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
                 }
                 Err(e) => {
                     send_message(sender, &ServerMessage::CellDeleted {
@@ -541,9 +545,11 @@ async fn handle_client_message(
                         error: None,
                     }).await;
 
-                    // Broadcast updated state to all clients
+                    // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
                     session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
                 }
                 Err(e) => {
                     send_message(sender, &ServerMessage::CellDuplicated {
@@ -566,14 +572,72 @@ async fn handle_client_message(
                         error: None,
                     }).await;
 
-                    // Broadcast updated state to all clients
+                    // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
                     session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
                 }
                 Err(e) => {
                     send_message(sender, &ServerMessage::CellMoved {
                         cell_id,
                         error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::Undo => {
+            let mut session = state.session.write().await;
+
+            match session.undo() {
+                Ok(description) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::UndoResult {
+                        success: true,
+                        error: None,
+                        description: Some(description),
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::UndoResult {
+                        success: false,
+                        error: Some(e.to_string()),
+                        description: None,
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::Redo => {
+            let mut session = state.session.write().await;
+
+            match session.redo() {
+                Ok(description) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::RedoResult {
+                        success: true,
+                        error: None,
+                        description: Some(description),
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::RedoResult {
+                        success: false,
+                        error: Some(e.to_string()),
+                        description: None,
                     }).await;
                 }
             }

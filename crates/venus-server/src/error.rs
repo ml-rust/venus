@@ -42,6 +42,10 @@ pub enum ServerError {
     /// Execution timed out.
     #[error("Execution timed out")]
     ExecutionTimeout,
+
+    /// Invalid operation.
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
 }
 
 impl From<std::io::Error> for ServerError {

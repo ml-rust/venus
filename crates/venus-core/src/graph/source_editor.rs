@@ -206,6 +206,81 @@ impl SourceEditor {
         Ok(())
     }
 
+    /// Get the source code of a cell (including doc comments and attributes).
+    ///
+    /// Used for undo operations to capture cell content before deletion.
+    pub fn get_cell_source(&self, cell_name: &str) -> Result<String> {
+        let file: File = syn::parse_str(&self.content)
+            .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
+
+        let (start_line, end_line) = self.find_cell_span(&file, cell_name)?;
+
+        let lines: Vec<&str> = self.content.lines().collect();
+        let start_offset = self.line_start_offset(start_line, &lines);
+        let end_offset = self.line_to_byte_offset(end_line, &lines);
+
+        Ok(self.content[start_offset..end_offset].to_string())
+    }
+
+    /// Get the name of the cell that appears before the specified cell.
+    ///
+    /// Returns None if the cell is the first one.
+    /// Used for undo operations to track position for restoration.
+    pub fn get_previous_cell_name(&self, cell_name: &str) -> Result<Option<String>> {
+        let file: File = syn::parse_str(&self.content)
+            .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
+
+        let cells = self.collect_cell_spans(&file);
+
+        let cell_idx = cells
+            .iter()
+            .position(|(name, _, _)| name == cell_name)
+            .ok_or_else(|| Error::CellNotFound(format!("Cell '{}' not found", cell_name)))?;
+
+        if cell_idx == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(cells[cell_idx - 1].0.clone()))
+        }
+    }
+
+    /// Restore a cell with specific source code after a specific cell.
+    ///
+    /// If `after_cell_name` is None, inserts at the beginning (before all cells).
+    /// Used for undo delete operations.
+    pub fn restore_cell(&mut self, source: &str, after_cell_name: Option<&str>) -> Result<()> {
+        let file: File = syn::parse_str(&self.content)
+            .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
+
+        let insert_pos = if let Some(after_name) = after_cell_name {
+            // Insert after the specified cell
+            self.find_insert_position(&file, Some(after_name))?
+        } else {
+            // Insert at the beginning - find the first cell and insert before it
+            let cells = self.collect_cell_spans(&file);
+            if cells.is_empty() {
+                // No cells, insert at end
+                self.content.len()
+            } else {
+                // Insert before the first cell
+                let lines: Vec<&str> = self.content.lines().collect();
+                self.line_start_offset(cells[0].1, &lines)
+            }
+        };
+
+        // Insert the source with appropriate newlines
+        let insert_code = if after_cell_name.is_some() {
+            format!("\n\n{}", source.trim())
+        } else {
+            // Inserting at beginning
+            format!("{}\n\n", source.trim())
+        };
+
+        self.content.insert_str(insert_pos, &insert_code);
+
+        Ok(())
+    }
+
     /// Find the span of a cell (start line to end line, 1-indexed).
     /// Includes doc comments and attributes above the function.
     fn find_cell_span(&self, file: &File, cell_name: &str) -> Result<(usize, usize)> {

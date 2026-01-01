@@ -23,6 +23,10 @@ const state = {
     executing: false,  // Track if any execution is in progress
     runningCellId: null,  // Track currently running cell
     executionHistory: new Map(),  // Map<cellId, Array<HistoryEntry>>
+    canUndo: false,
+    canRedo: false,
+    undoDescription: null,
+    redoDescription: null,
 };
 
 // DOM Elements
@@ -211,6 +215,15 @@ function handleServerMessage(msg) {
         case 'cell_moved':
             handleCellMoved(msg);
             break;
+        case 'undo_result':
+            handleUndoResult(msg);
+            break;
+        case 'redo_result':
+            handleRedoResult(msg);
+            break;
+        case 'undo_redo_state':
+            handleUndoRedoState(msg);
+            break;
         case 'file_changed':
             handleFileChanged(msg);
             break;
@@ -381,6 +394,48 @@ function handleCellMoved(msg) {
     }
     // No success toast - the visual reorder is feedback enough
     // The notebook_state message will follow to update the UI
+}
+
+function handleUndoResult(msg) {
+    if (msg.success) {
+        if (msg.description) {
+            showToast(`Undo: ${msg.description}`, 'info');
+        }
+    } else if (msg.error) {
+        showToast(`Undo failed: ${msg.error}`, 'error');
+    }
+}
+
+function handleRedoResult(msg) {
+    if (msg.success) {
+        if (msg.description) {
+            showToast(`Redo: ${msg.description}`, 'info');
+        }
+    } else if (msg.error) {
+        showToast(`Redo failed: ${msg.error}`, 'error');
+    }
+}
+
+function handleUndoRedoState(msg) {
+    state.canUndo = msg.can_undo;
+    state.canRedo = msg.can_redo;
+    state.undoDescription = msg.undo_description;
+    state.redoDescription = msg.redo_description;
+    updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+    const undoBtn = document.getElementById('undo-btn');
+    const redoBtn = document.getElementById('redo-btn');
+
+    if (undoBtn) {
+        undoBtn.disabled = !state.canUndo;
+        undoBtn.title = state.undoDescription ? `Undo: ${state.undoDescription}` : 'Undo (Ctrl+Z)';
+    }
+    if (redoBtn) {
+        redoBtn.disabled = !state.canRedo;
+        redoBtn.title = state.redoDescription ? `Redo: ${state.redoDescription}` : 'Redo (Ctrl+Shift+Z)';
+    }
 }
 
 function handleFileChanged(msg) {
@@ -1030,6 +1085,18 @@ function moveCellDown(cellId) {
     send({ type: 'move_cell', cell_id: cellId, direction: 'down' });
 }
 
+function undo() {
+    if (state.canUndo) {
+        send({ type: 'undo' });
+    }
+}
+
+function redo() {
+    if (state.canRedo) {
+        send({ type: 'redo' });
+    }
+}
+
 function syncNotebook() {
     send({ type: 'sync' });
 }
@@ -1443,6 +1510,8 @@ function showToast(message, type = 'info') {
 
 elements.runAllBtn.addEventListener('click', executeAll);
 elements.syncBtn.addEventListener('click', syncNotebook);
+document.getElementById('undo-btn').addEventListener('click', undo);
+document.getElementById('redo-btn').addEventListener('click', redo);
 // Graph hidden (plotr in development)
 // elements.graphToggleBtn.addEventListener('click', toggleGraph);
 // elements.graphCloseBtn.addEventListener('click', toggleGraph);
@@ -1496,9 +1565,33 @@ document.addEventListener('click', (e) => {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
+    // Shift+Enter: Execute all
     if (e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
         executeAll();
+        return;
+    }
+
+    // Ctrl+Z: Undo (but not inside Monaco editor)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        // Only handle if not focused in an editor
+        const activeEditor = document.activeElement?.closest('.cell-editor');
+        if (!activeEditor) {
+            e.preventDefault();
+            undo();
+            return;
+        }
+    }
+
+    // Ctrl+Shift+Z or Ctrl+Y: Redo (but not inside Monaco editor)
+    if ((e.ctrlKey || e.metaKey) && ((e.key === 'z' && e.shiftKey) || e.key === 'y')) {
+        // Only handle if not focused in an editor
+        const activeEditor = document.activeElement?.closest('.cell-editor');
+        if (!activeEditor) {
+            e.preventDefault();
+            redo();
+            return;
+        }
     }
 });
 

@@ -21,6 +21,7 @@ pub mod lsp;
 pub mod protocol;
 pub mod routes;
 pub mod session;
+pub mod undo;
 pub mod watcher;
 
 use std::net::SocketAddr;

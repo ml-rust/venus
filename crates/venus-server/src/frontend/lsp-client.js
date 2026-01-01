@@ -53,6 +53,9 @@ function connectLsp() {
 
     lspState.ws.onerror = (error) => {
         console.error('LSP WebSocket error:', error);
+        if (typeof showToast === 'function') {
+            showToast('Code intelligence disconnected. Reconnecting...', 'warning');
+        }
     };
 }
 
@@ -136,7 +139,7 @@ function handleLspNotification(method, params) {
             handleDiagnostics(params);
             break;
         case 'window/showMessage':
-            console.log('LSP message:', params.message);
+            handleLspShowMessage(params);
             break;
         case 'window/logMessage':
             console.debug('LSP log:', params.message);
@@ -147,10 +150,51 @@ function handleLspNotification(method, params) {
 }
 
 /**
+ * Handle LSP window/showMessage notification.
+ * Shows user-friendly messages for rust-analyzer issues.
+ */
+function handleLspShowMessage(params) {
+    const message = params.message || '';
+    const type = params.type; // 1=Error, 2=Warning, 3=Info, 4=Log
+
+    // Map LSP message types to toast types
+    let toastType = 'info';
+    if (type === 1) toastType = 'error';
+    else if (type === 2) toastType = 'warning';
+
+    // Make error messages more user-friendly
+    let displayMessage = message;
+
+    if (message.includes('proc-macro server')) {
+        displayMessage = 'rust-analyzer: Proc-macro expansion limited (version mismatch). Code analysis still works.';
+        toastType = 'warning';
+    } else if (message.includes('Failed to spawn')) {
+        displayMessage = 'rust-analyzer failed to start. Some code intelligence features may be unavailable.';
+        toastType = 'error';
+    } else if (message.includes('Failed to run')) {
+        displayMessage = 'rust-analyzer encountered an error. Try reloading the page.';
+        toastType = 'error';
+    }
+
+    // Only show important messages to avoid spam
+    if (type <= 2 && typeof showToast === 'function') {
+        showToast(displayMessage, toastType);
+    }
+
+    console.log('LSP message:', message);
+}
+
+/**
  * Initialize LSP connection.
  */
 async function initializeLsp() {
     try {
+        // Get workspace root from notebook path (parent directory)
+        const workspaceRoot = state.notebookPath
+            ? state.notebookPath.substring(0, state.notebookPath.lastIndexOf('/'))
+            : null;
+        const rootUri = workspaceRoot ? `file://${workspaceRoot}` : null;
+
         const result = await sendLspRequest('initialize', {
             processId: null,
             clientInfo: {
@@ -181,8 +225,11 @@ async function initializeLsp() {
                     workspaceFolders: true,
                 },
             },
-            rootUri: null,
-            workspaceFolders: null,
+            rootUri: rootUri,
+            workspaceFolders: rootUri ? [{
+                uri: rootUri,
+                name: 'venus-notebook',
+            }] : null,
         });
 
         lspState.capabilities = result.capabilities;
@@ -264,12 +311,134 @@ function notifyDocumentChange() {
 
 /**
  * Handle diagnostics from LSP.
+ * Maps LSP diagnostics to Monaco markers for each cell.
  */
 function handleDiagnostics(params) {
-    // Map diagnostics to Monaco markers
-    // For now, log them
-    if (params.diagnostics && params.diagnostics.length > 0) {
-        console.log('LSP diagnostics:', params.diagnostics);
+    if (!params.diagnostics || typeof monaco === 'undefined') {
+        return;
+    }
+
+    // Group diagnostics by cell
+    const diagnosticsByCell = new Map();
+
+    for (const diagnostic of params.diagnostics) {
+        // Convert global position to cell position
+        const cellInfo = globalToCellPosition(
+            diagnostic.range.start.line,
+            diagnostic.range.start.character
+        );
+
+        if (!cellInfo) {
+            continue;
+        }
+
+        const { cellId, line: startLine, character: startChar } = cellInfo;
+
+        // Also convert end position
+        const endInfo = globalToCellPosition(
+            diagnostic.range.end.line,
+            diagnostic.range.end.character
+        );
+
+        // If end is in different cell, clamp to end of start cell
+        let endLine, endChar;
+        if (endInfo && endInfo.cellId === cellId) {
+            endLine = endInfo.line;
+            endChar = endInfo.character;
+        } else {
+            // Clamp to end of current line
+            endLine = startLine;
+            endChar = startChar + 10; // Approximate
+        }
+
+        if (!diagnosticsByCell.has(cellId)) {
+            diagnosticsByCell.set(cellId, []);
+        }
+
+        diagnosticsByCell.get(cellId).push({
+            severity: mapDiagnosticSeverity(diagnostic.severity),
+            message: diagnostic.message,
+            startLineNumber: startLine + 1,  // Monaco is 1-based
+            startColumn: startChar + 1,
+            endLineNumber: endLine + 1,
+            endColumn: endChar + 1,
+            source: diagnostic.source || 'rust-analyzer',
+            code: diagnostic.code,
+        });
+    }
+
+    // Apply markers to each cell's editor
+    for (const [cellId, markers] of diagnosticsByCell) {
+        const editor = state.editors.get(cellId);
+        if (editor) {
+            const model = editor.getModel();
+            if (model) {
+                monaco.editor.setModelMarkers(model, 'rust-analyzer', markers);
+                // Force Monaco to render the decorations
+                editor.render(true);
+            }
+        }
+    }
+
+    // Clear markers for cells with no diagnostics
+    for (const [cellId, editor] of state.editors) {
+        if (!diagnosticsByCell.has(cellId)) {
+            const model = editor.getModel();
+            if (model) {
+                monaco.editor.setModelMarkers(model, 'rust-analyzer', []);
+            }
+        }
+    }
+
+    // Log summary
+    const total = params.diagnostics.length;
+    if (total > 0) {
+        console.log(`LSP: ${total} diagnostic(s) across ${diagnosticsByCell.size} cell(s)`);
+    }
+}
+
+/**
+ * Convert global document position to cell-local position.
+ * Returns { cellId, line, character } or null if not found.
+ */
+function globalToCellPosition(globalLine, character) {
+    let currentLine = 0;
+
+    for (const cellId of state.executionOrder) {
+        const cell = state.cells.get(cellId);
+        if (!cell || !cell.source) {
+            continue;
+        }
+
+        const cellLines = cell.source.split('\n').length;
+        const cellEndLine = currentLine + cellLines;
+
+        // Check if global line is within this cell
+        if (globalLine >= currentLine && globalLine < cellEndLine) {
+            return {
+                cellId,
+                line: globalLine - currentLine,
+                character,
+            };
+        }
+
+        // Move past this cell + empty line separator
+        currentLine = cellEndLine + 1;
+    }
+
+    return null;
+}
+
+/**
+ * Map LSP diagnostic severity to Monaco severity.
+ */
+function mapDiagnosticSeverity(severity) {
+    switch (severity) {
+        case 1: return monaco.MarkerSeverity.Error;
+        case 2: return monaco.MarkerSeverity.Warning;
+        case 3: return monaco.MarkerSeverity.Info;
+        case 4: return monaco.MarkerSeverity.Hint;
+        default: return monaco.MarkerSeverity.Info;
     }
 }
 

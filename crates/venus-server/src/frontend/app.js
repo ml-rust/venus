@@ -48,7 +48,9 @@ const elements = {
     variableExplorer: document.getElementById('variable-explorer'),
     explorerContent: document.getElementById('explorer-content'),
     explorerToggleBtn: document.getElementById('explorer-toggle-btn'),
-    variablesToggleBtn: document.getElementById('variables-toggle-btn')
+    variablesToggleBtn: document.getElementById('variables-toggle-btn'),
+    restartKernelBtn: document.getElementById('restart-kernel-btn'),
+    clearOutputsBtn: document.getElementById('clear-outputs-btn')
 };
 
 // Centralized SVG icons for consistency and maintainability
@@ -236,6 +238,12 @@ function handleServerMessage(msg) {
             break;
         case 'history_selected':
             handleHistorySelected(msg);
+            break;
+        case 'kernel_restarted':
+            handleKernelRestarted(msg);
+            break;
+        case 'outputs_cleared':
+            handleOutputsCleared(msg);
             break;
         case 'error':
             showToast(msg.message, 'error');
@@ -475,6 +483,24 @@ function handleExecutionAborted(msg) {
     updateExecutionUI();
 }
 
+function handleKernelRestarted(msg) {
+    if (msg.error) {
+        showToast(`Kernel restart failed: ${msg.error}`, 'error');
+    } else {
+        showToast('Kernel restarted successfully', 'success');
+    }
+    // NotebookState message will follow and update the UI
+}
+
+function handleOutputsCleared(msg) {
+    if (msg.error) {
+        showToast(`Clear outputs failed: ${msg.error}`, 'error');
+    } else {
+        showToast('All outputs cleared', 'success');
+    }
+    // NotebookState message will follow and update the UI
+}
+
 function handleHistorySelected(msg) {
     const { cell_id, index, count, output, dirty_cells } = msg;
 
@@ -673,6 +699,7 @@ function createEditor(cellId, source) {
         lineNumbers: 'on',
         scrollBeyondLastLine: false,
         automaticLayout: true,
+        fixedOverflowWidgets: true,  // Allow hover/autocomplete widgets to escape container
         fontSize: 13,
         fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
         tabSize: 4,
@@ -1167,6 +1194,30 @@ function syncNotebook() {
     send({ type: 'sync' });
 }
 
+function restartKernel() {
+    showConfirmDialog({
+        title: 'Restart Kernel',
+        message: 'This will clear all execution state and outputs. Cell source code will be preserved.',
+        confirmText: 'Restart',
+        onConfirm: () => {
+            send({ type: 'restart_kernel' });
+            showToast('Restarting kernel...', 'info');
+        }
+    });
+}
+
+function clearOutputs() {
+    showConfirmDialog({
+        title: 'Clear All Outputs',
+        message: 'This will clear all cell outputs. Cell source code and widget values will be preserved.',
+        confirmText: 'Clear',
+        onConfirm: () => {
+            send({ type: 'clear_outputs' });
+            showToast('Clearing outputs...', 'info');
+        }
+    });
+}
+
 // Graph hidden (plotr in development)
 // function toggleGraph() {
 //     state.graphVisible = !state.graphVisible;
@@ -1551,6 +1602,42 @@ function renderHistoryControls(cellId) {
 // Utilities
 // =====================================
 
+/**
+ * Create a debounced version of a function.
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} Debounced function
+ */
+function debounce(fn, delay) {
+    let timeoutId = null;
+    return function(...args) {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+        timeoutId = setTimeout(() => {
+            fn.apply(this, args);
+            timeoutId = null;
+        }, delay);
+    };
+}
+
+/**
+ * Create a debounced widget update sender per widget.
+ * Each widget gets its own debounced sender to avoid cross-widget interference.
+ */
+const widgetUpdateDebounceMap = new Map();
+const WIDGET_DEBOUNCE_MS = 50;  // 50ms debounce for responsive feel
+
+function getDebouncedWidgetSender(cellId, widgetId) {
+    const key = `${cellId}:${widgetId}`;
+    if (!widgetUpdateDebounceMap.has(key)) {
+        widgetUpdateDebounceMap.set(key, debounce((value) => {
+            sendWidgetUpdate(cellId, widgetId, value);
+        }, WIDGET_DEBOUNCE_MS));
+    }
+    return widgetUpdateDebounceMap.get(key);
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -1576,6 +1663,8 @@ function showToast(message, type = 'info') {
 
 elements.runAllBtn.addEventListener('click', executeAll);
 elements.syncBtn.addEventListener('click', syncNotebook);
+elements.restartKernelBtn.addEventListener('click', restartKernel);
+elements.clearOutputsBtn.addEventListener('click', clearOutputs);
 document.getElementById('undo-btn').addEventListener('click', undo);
 document.getElementById('redo-btn').addEventListener('click', redo);
 // Graph hidden (plotr in development)
@@ -1661,7 +1750,7 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Widget event delegation for sliders (real-time feedback)
+// Widget event delegation for sliders (real-time feedback with debouncing)
 document.addEventListener('input', (e) => {
     const target = e.target;
     if (!target.dataset.widgetType) return;
@@ -1673,13 +1762,18 @@ document.addEventListener('input', (e) => {
     if (isNaN(cellId)) return;
 
     if (widgetType === 'slider') {
-        // Update the displayed value
+        // Update the displayed value immediately (UI responsiveness)
         const valueDisplay = target.nextElementSibling;
         if (valueDisplay) {
             valueDisplay.textContent = target.value;
         }
-        // Send update to server
-        sendWidgetUpdate(cellId, widgetId, parseFloat(target.value));
+        // Send update to server with debouncing to prevent flooding
+        const debouncedSend = getDebouncedWidgetSender(cellId, widgetId);
+        debouncedSend(parseFloat(target.value));
+    } else if (widgetType === 'text_input') {
+        // Debounce text input for as-you-type updates
+        const debouncedSend = getDebouncedWidgetSender(cellId, widgetId);
+        debouncedSend(target.value);
     }
 });
 

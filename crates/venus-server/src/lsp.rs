@@ -2,6 +2,8 @@
 //!
 //! Provides a WebSocket endpoint that proxies LSP messages between
 //! the Monaco editor frontend and a rust-analyzer instance.
+//!
+//! rust-analyzer is automatically downloaded and cached if not available.
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -10,58 +12,34 @@ use std::sync::Arc;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::Mutex;
 
-/// LSP proxy that manages a rust-analyzer instance.
-pub struct LspProxy {
-    /// Path to the notebook file (for workspace root).
-    notebook_path: PathBuf,
-    /// rust-analyzer process.
-    process: Option<Child>,
-}
-
-impl LspProxy {
-    /// Create a new LSP proxy for a notebook.
-    pub fn new(notebook_path: PathBuf) -> Self {
-        Self {
-            notebook_path,
-            process: None,
-        }
-    }
-
-    /// Start the rust-analyzer process.
-    pub async fn start(&mut self) -> Result<(), std::io::Error> {
-        let workspace_root = self
-            .notebook_path
-            .parent()
-            .unwrap_or(&self.notebook_path)
-            .to_path_buf();
-
-        tracing::info!("Starting rust-analyzer for workspace: {}", workspace_root.display());
-
-        let child = Command::new("rust-analyzer")
-            .current_dir(&workspace_root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        self.process = Some(child);
-        Ok(())
-    }
-
-    /// Stop the rust-analyzer process.
-    pub async fn stop(&mut self) {
-        if let Some(mut process) = self.process.take() {
-            let _ = process.kill().await;
-        }
-    }
-}
+use crate::rust_analyzer;
 
 /// Handle an LSP WebSocket connection.
 pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
+
+    // Ensure rust-analyzer is available (download if needed)
+    let ra_path = match rust_analyzer::ensure_available().await {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::error!("Failed to get rust-analyzer: {}", e);
+            let error_msg = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "window/showMessage",
+                "params": {
+                    "type": 1,
+                    "message": format!("Failed to get rust-analyzer: {}. Please install it manually.", e)
+                }
+            });
+            let _ = ws_sender
+                .send(Message::Text(error_msg.to_string().into()))
+                .await;
+            return;
+        }
+    };
 
     // Start rust-analyzer
     let workspace_root = notebook_path
@@ -69,7 +47,9 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
         .unwrap_or(&notebook_path)
         .to_path_buf();
 
-    let mut child = match Command::new("rust-analyzer")
+    tracing::info!("Starting rust-analyzer from: {}", ra_path.display());
+
+    let mut child = match Command::new(&ra_path)
         .current_dir(&workspace_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

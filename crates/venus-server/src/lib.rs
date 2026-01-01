@@ -20,6 +20,7 @@ pub mod error;
 pub mod lsp;
 pub mod protocol;
 pub mod routes;
+pub mod rust_analyzer;
 pub mod session;
 pub mod undo;
 pub mod watcher;

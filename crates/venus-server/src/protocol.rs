@@ -94,6 +94,12 @@ pub enum ClientMessage {
 
     /// Redo the last undone operation.
     Redo,
+
+    /// Restart the kernel (kill WorkerPool, clear memory state, preserve source).
+    RestartKernel,
+
+    /// Clear all cell outputs without restarting the kernel.
+    ClearOutputs,
 }
 
 /// Messages sent from server to client.
@@ -260,6 +266,18 @@ pub enum ServerMessage {
         undo_description: Option<String>,
         /// Description of what will be redone (for UI tooltip).
         redo_description: Option<String>,
+    },
+
+    /// Kernel restart completed.
+    KernelRestarted {
+        /// Error message if restart failed.
+        error: Option<String>,
+    },
+
+    /// All outputs cleared.
+    OutputsCleared {
+        /// Error message if clear failed.
+        error: Option<String>,
     },
 }
 

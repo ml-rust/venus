@@ -30,6 +30,13 @@ pub fn config_copy() -> Config {
     }
 }
 
+
+/// New cell
+#[venus::cell]
+pub fn new_cell_1() -> String {
+    "Hello".to_string()
+}
+
 /// # Numbers
 ///
 /// Generate a sequence of squared numbers.

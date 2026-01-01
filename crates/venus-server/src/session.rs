@@ -580,6 +580,81 @@ impl NotebookSession {
         self.executor.get_kill_handle()
     }
 
+    /// Restart the kernel: kill WorkerPool, spin up new one, clear memory state, preserve source.
+    ///
+    /// This clears all execution state including:
+    /// - Cell outputs and output history
+    /// - Widget values
+    /// - Cached serialized outputs
+    /// - Cell execution status (all cells reset to Idle)
+    ///
+    /// Source code and cell definitions are preserved.
+    pub fn restart_kernel(&mut self) -> ServerResult<()> {
+        // Abort any running execution first
+        if self.executing {
+            self.abort();
+        }
+
+        // Shutdown old executor and worker pool
+        self.executor.shutdown();
+
+        // Reconstruct state directory path
+        let dirs = NotebookDirs::from_notebook_path(&self.path)?;
+
+        // Create new ProcessExecutor with warm worker pool
+        self.executor = ProcessExecutor::new(&dirs.state_dir)?;
+
+        // Clear all execution state
+        self.cell_outputs.clear();
+        self.widget_values.clear();
+        self.widget_defs.clear();
+        self.cell_output_history.clear();
+        self.cell_history_index.clear();
+
+        // Reset all cell states to Idle and clear outputs
+        for state in self.cell_states.values_mut() {
+            state.status = CellStatus::Idle;
+            state.output = None;
+            state.dirty = false;
+        }
+
+        // Broadcast kernel restarted message
+        self.broadcast(ServerMessage::KernelRestarted { error: None });
+
+        // Send updated state to all clients
+        let state_msg = self.get_state();
+        self.broadcast(state_msg);
+
+        Ok(())
+    }
+
+    /// Clear all cell outputs without restarting the kernel.
+    ///
+    /// This clears the display outputs but preserves:
+    /// - Worker pool and execution state
+    /// - Widget values
+    /// - Cell source code
+    ///
+    /// All cells are marked as needing re-execution (dirty).
+    pub fn clear_outputs(&mut self) {
+        // Clear outputs from cell states
+        for state in self.cell_states.values_mut() {
+            state.output = None;
+            state.dirty = true; // Mark as needing re-execution
+        }
+
+        // Clear output history
+        self.cell_output_history.clear();
+        self.cell_history_index.clear();
+
+        // Broadcast outputs cleared message
+        self.broadcast(ServerMessage::OutputsCleared { error: None });
+
+        // Send updated state to all clients
+        let state_msg = self.get_state();
+        self.broadcast(state_msg);
+    }
+
     /// Get IDs of all dirty cells in topological order.
     pub fn get_dirty_cell_ids(&self) -> Vec<CellId> {
         let order = match self.graph.topological_order() {

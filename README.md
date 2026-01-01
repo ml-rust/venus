@@ -1,5 +1,7 @@
 # Venus
 
+![Venus](docs/images/venus.png)
+
 A reactive notebook environment for Rust.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)

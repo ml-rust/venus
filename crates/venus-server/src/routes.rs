@@ -642,6 +642,30 @@ async fn handle_client_message(
                 }
             }
         }
+
+        ClientMessage::RestartKernel => {
+            let mut session = state.session.write().await;
+
+            match session.restart_kernel() {
+                Ok(()) => {
+                    tracing::info!("Kernel restarted successfully");
+                    // KernelRestarted message already broadcast by restart_kernel()
+                }
+                Err(e) => {
+                    tracing::error!("Kernel restart failed: {}", e);
+                    send_message(sender, &ServerMessage::KernelRestarted {
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::ClearOutputs => {
+            let mut session = state.session.write().await;
+            session.clear_outputs();
+            tracing::info!("All cell outputs cleared");
+            // OutputsCleared message already broadcast by clear_outputs()
+        }
     }
 }
 

@@ -15,7 +15,7 @@ use venus_core::compile::{
     CellCompiler, CompilationResult, CompilerConfig, ToolchainManager, UniverseBuilder,
 };
 use venus_core::execute::{ExecutorKillHandle, ProcessExecutor};
-use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine};
+use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine, MoveDirection, SourceEditor};
 use venus_core::paths::NotebookDirs;
 
 use crate::error::{ServerError, ServerResult};
@@ -716,6 +716,95 @@ impl NotebookSession {
     /// Get reference to cell states.
     pub fn cell_states(&self) -> &HashMap<CellId, CellState> {
         &self.cell_states
+    }
+
+    /// Insert a new cell after the specified cell.
+    ///
+    /// Modifies the source file and triggers a reload.
+    /// Returns the name of the newly created cell.
+    pub fn insert_cell(&mut self, after_cell_id: Option<CellId>) -> ServerResult<String> {
+        // Convert CellId to cell name if provided
+        let after_name = after_cell_id.and_then(|id| {
+            self.cells.iter().find(|c| c.id == id).map(|c| c.name.clone())
+        });
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        let new_name = editor.insert_cell(after_name.as_deref())?;
+        editor.save()?;
+
+        // File watcher will trigger reload, but we can also reload now
+        // to ensure immediate consistency
+        self.reload()?;
+
+        Ok(new_name)
+    }
+
+    /// Delete a cell from the notebook.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn delete_cell(&mut self, cell_id: CellId) -> ServerResult<()> {
+        // Find the cell name
+        let cell_name = self.cells
+            .iter()
+            .find(|c| c.id == cell_id)
+            .map(|c| c.name.clone())
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.delete_cell(&cell_name)?;
+        editor.save()?;
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
+    /// Duplicate a cell in the notebook.
+    ///
+    /// Creates a copy of the cell with a unique name.
+    /// Returns the name of the new cell.
+    pub fn duplicate_cell(&mut self, cell_id: CellId) -> ServerResult<String> {
+        // Find the cell name
+        let cell_name = self.cells
+            .iter()
+            .find(|c| c.id == cell_id)
+            .map(|c| c.name.clone())
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        let new_name = editor.duplicate_cell(&cell_name)?;
+        editor.save()?;
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(new_name)
+    }
+
+    /// Move a cell up or down in the notebook.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn move_cell(&mut self, cell_id: CellId, direction: MoveDirection) -> ServerResult<()> {
+        // Find the cell name
+        let cell_name = self.cells
+            .iter()
+            .find(|c| c.id == cell_id)
+            .map(|c| c.name.clone())
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.move_cell(&cell_name, direction)?;
+        editor.save()?;
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
     }
 }
 

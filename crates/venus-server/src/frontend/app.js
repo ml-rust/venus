@@ -199,6 +199,18 @@ function handleServerMessage(msg) {
         // case 'graph_updated':
         //     handleGraphUpdated(msg);
         //     break;
+        case 'cell_inserted':
+            handleCellInserted(msg);
+            break;
+        case 'cell_deleted':
+            handleCellDeleted(msg);
+            break;
+        case 'cell_duplicated':
+            handleCellDuplicated(msg);
+            break;
+        case 'cell_moved':
+            handleCellMoved(msg);
+            break;
         case 'file_changed':
             handleFileChanged(msg);
             break;
@@ -336,6 +348,41 @@ function handleCompileError(msg) {
 //     }
 // }
 
+function handleCellInserted(msg) {
+    if (msg.error) {
+        showToast(`Failed to insert cell: ${msg.error}`, 'error');
+    } else {
+        showToast('Cell added', 'success');
+        // The notebook_state message will follow to update the UI
+    }
+}
+
+function handleCellDeleted(msg) {
+    if (msg.error) {
+        showToast(`Failed to delete cell: ${msg.error}`, 'error');
+    } else {
+        showToast('Cell deleted', 'success');
+        // The notebook_state message will follow to update the UI
+    }
+}
+
+function handleCellDuplicated(msg) {
+    if (msg.error) {
+        showToast(`Failed to duplicate cell: ${msg.error}`, 'error');
+    } else {
+        showToast('Cell duplicated', 'success');
+        // The notebook_state message will follow to update the UI
+    }
+}
+
+function handleCellMoved(msg) {
+    if (msg.error) {
+        showToast(`Failed to move cell: ${msg.error}`, 'error');
+    }
+    // No success toast - the visual reorder is feedback enough
+    // The notebook_state message will follow to update the UI
+}
+
 function handleFileChanged(msg) {
     showToast('Notebook file changed. Reloading...', 'info');
     // Request fresh state
@@ -452,6 +499,19 @@ function renderCells() {
             elements.cellsContainer.appendChild(cellEl);
         }
     });
+
+    // Add "Add Cell" button at the bottom
+    const addCellDiv = document.createElement('div');
+    addCellDiv.className = 'add-cell-container';
+    addCellDiv.innerHTML = `
+        <button class="btn btn-add-cell" data-action="insert-cell-end" title="Add new cell">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+            Add Cell
+        </button>
+    `;
+    elements.cellsContainer.appendChild(addCellDiv);
 }
 
 function createCellElement(cell) {
@@ -488,6 +548,31 @@ function createCellElement(cell) {
                 ${statusHtml}
                 <button class="btn btn-run" data-cell-id="${cell.id}" data-action="run-cell" title="Run Cell">
                     ${ICONS.play}
+                </button>
+                <button class="btn btn-icon btn-insert" data-cell-id="${cell.id}" data-action="insert-cell" title="Insert cell below">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-duplicate" data-cell-id="${cell.id}" data-action="duplicate-cell" title="Duplicate cell">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-move" data-cell-id="${cell.id}" data-action="move-cell-up" title="Move cell up">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-move" data-cell-id="${cell.id}" data-action="move-cell-down" title="Move cell down">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-delete" data-cell-id="${cell.id}" data-action="delete-cell" title="Delete cell">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                    </svg>
                 </button>
             </div>
         </div>
@@ -909,6 +994,40 @@ function executeAll() {
 
 function interruptExecution() {
     send({ type: 'interrupt' });
+}
+
+function insertCellAfter(cellId) {
+    send({ type: 'insert_cell', after_cell_id: cellId });
+}
+
+function insertCellAtEnd() {
+    send({ type: 'insert_cell', after_cell_id: null });
+}
+
+function confirmDeleteCell(cellId) {
+    // Find the cell name for the confirmation message
+    const cell = state.cells.find(c => c.id === cellId);
+    const cellName = cell ? cell.name : `Cell ${cellId}`;
+
+    if (confirm(`Delete cell "${cellName}"? This cannot be undone.`)) {
+        deleteCell(cellId);
+    }
+}
+
+function deleteCell(cellId) {
+    send({ type: 'delete_cell', cell_id: cellId });
+}
+
+function duplicateCell(cellId) {
+    send({ type: 'duplicate_cell', cell_id: cellId });
+}
+
+function moveCellUp(cellId) {
+    send({ type: 'move_cell', cell_id: cellId, direction: 'up' });
+}
+
+function moveCellDown(cellId) {
+    send({ type: 'move_cell', cell_id: cellId, direction: 'down' });
 }
 
 function syncNotebook() {
@@ -1339,11 +1458,29 @@ document.addEventListener('click', (e) => {
     const action = target.dataset.action;
     const cellId = parseInt(target.dataset.cellId, 10);
 
-    if (isNaN(cellId) && action !== 'interrupt') return;
+    if (isNaN(cellId) && action !== 'interrupt' && action !== 'insert-cell-end') return;
 
     switch (action) {
         case 'run-cell':
             executeCell(cellId);
+            break;
+        case 'insert-cell':
+            insertCellAfter(cellId);
+            break;
+        case 'insert-cell-end':
+            insertCellAtEnd();
+            break;
+        case 'delete-cell':
+            confirmDeleteCell(cellId);
+            break;
+        case 'duplicate-cell':
+            duplicateCell(cellId);
+            break;
+        case 'move-cell-up':
+            moveCellUp(cellId);
+            break;
+        case 'move-cell-down':
+            moveCellDown(cellId);
             break;
         case 'scroll-to-cell':
             scrollToCell(cellId);

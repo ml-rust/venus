@@ -62,4 +62,8 @@ pub enum Error {
     /// Execution was aborted by user request.
     #[error("execution aborted")]
     Aborted,
+
+    /// Invalid operation (e.g., moving first cell up).
+    #[error("invalid operation: {0}")]
+    InvalidOperation(String),
 }

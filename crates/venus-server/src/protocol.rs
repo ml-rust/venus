@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use venus::widgets::{WidgetDef, WidgetValue};
 use venus_core::graph::CellId;
 
+// Re-export MoveDirection from venus_core for use in protocol messages
+pub use venus_core::graph::MoveDirection;
+
 /// Messages sent from client to server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -58,6 +61,32 @@ pub enum ClientMessage {
         cell_id: CellId,
         /// History index (0 = oldest).
         index: usize,
+    },
+
+    /// Insert a new cell.
+    InsertCell {
+        /// Cell ID to insert after. None = insert at end.
+        after_cell_id: Option<CellId>,
+    },
+
+    /// Delete a cell.
+    DeleteCell {
+        /// Cell to delete.
+        cell_id: CellId,
+    },
+
+    /// Duplicate a cell.
+    DuplicateCell {
+        /// Cell to duplicate.
+        cell_id: CellId,
+    },
+
+    /// Move a cell up or down.
+    MoveCell {
+        /// Cell to move.
+        cell_id: CellId,
+        /// Direction to move.
+        direction: MoveDirection,
     },
 }
 
@@ -143,6 +172,40 @@ pub enum ServerMessage {
     Error {
         /// Error description.
         message: String,
+    },
+
+    /// Cell insertion result.
+    CellInserted {
+        /// ID of the newly created cell.
+        cell_id: CellId,
+        /// Error message if insertion failed.
+        error: Option<String>,
+    },
+
+    /// Cell deletion result.
+    CellDeleted {
+        /// ID of the deleted cell.
+        cell_id: CellId,
+        /// Error message if deletion failed.
+        error: Option<String>,
+    },
+
+    /// Cell duplication result.
+    CellDuplicated {
+        /// ID of the original cell.
+        original_cell_id: CellId,
+        /// ID of the new duplicated cell.
+        new_cell_id: CellId,
+        /// Error message if duplication failed.
+        error: Option<String>,
+    },
+
+    /// Cell move result.
+    CellMoved {
+        /// ID of the moved cell.
+        cell_id: CellId,
+        /// Error message if move failed.
+        error: Option<String>,
     },
 
     /// History entry selected for a cell.

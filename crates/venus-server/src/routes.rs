@@ -466,6 +466,118 @@ async fn handle_client_message(
                 });
             }
         }
+
+        ClientMessage::InsertCell { after_cell_id } => {
+            let mut session = state.session.write().await;
+
+            match session.insert_cell(after_cell_id) {
+                Ok(new_name) => {
+                    // Find the new cell's ID by name
+                    let new_cell_id = session.cell_states()
+                        .iter()
+                        .find(|(_, s)| s.name == new_name)
+                        .map(|(id, _)| *id)
+                        .unwrap_or(CellId::new(0));
+
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::CellInserted {
+                        cell_id: new_cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::CellInserted {
+                        cell_id: CellId::new(0),
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::DeleteCell { cell_id } => {
+            let mut session = state.session.write().await;
+
+            match session.delete_cell(cell_id) {
+                Ok(()) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::CellDeleted {
+                        cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::CellDeleted {
+                        cell_id,
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::DuplicateCell { cell_id } => {
+            let mut session = state.session.write().await;
+
+            match session.duplicate_cell(cell_id) {
+                Ok(new_name) => {
+                    // Find the new cell's ID by name
+                    let new_cell_id = session.cell_states()
+                        .iter()
+                        .find(|(_, s)| s.name == new_name)
+                        .map(|(id, _)| *id)
+                        .unwrap_or(CellId::new(0));
+
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::CellDuplicated {
+                        original_cell_id: cell_id,
+                        new_cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::CellDuplicated {
+                        original_cell_id: cell_id,
+                        new_cell_id: CellId::new(0),
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::MoveCell { cell_id, direction } => {
+            let mut session = state.session.write().await;
+
+            match session.move_cell(cell_id, direction) {
+                Ok(()) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::CellMoved {
+                        cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::CellMoved {
+                        cell_id,
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
     }
 }
 

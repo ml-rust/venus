@@ -287,28 +287,17 @@ impl ProcessExecutor {
         let display_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
         let display_end = 8 + display_len;
 
-        if bytes.len() < display_end + 8 {
+        if bytes.len() < display_end {
             return Err(Error::Execution(format!(
                 "Cell {} output too short for display data",
                 cell_name
             )));
         }
 
-        // Read widgets_len
-        let widgets_len =
-            u64::from_le_bytes(bytes[display_end..display_end + 8].try_into().unwrap()) as usize;
-        let widgets_end = display_end + 8 + widgets_len;
-
-        if bytes.len() < widgets_end {
-            return Err(Error::Execution(format!(
-                "Cell {} output too short for widgets data",
-                cell_name
-            )));
-        }
-
+        // Worker already stripped widgets_len and widgets_json
+        // Format is: display_len | display_bytes | rkyv_data
         let display_text = String::from_utf8_lossy(&bytes[8..display_end]).to_string();
-        // Skip widgets_json (ProcessExecutor doesn't use widgets currently)
-        let rkyv_data = bytes[widgets_end..].to_vec();
+        let rkyv_data = bytes[display_end..].to_vec();
 
         Ok(BoxedOutput::from_raw_bytes_with_display(rkyv_data, display_text))
     }

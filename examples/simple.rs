@@ -19,24 +19,6 @@ pub fn config() -> Config {
 }
 
 
-/// # Configuration
-///
-/// Basic configuration cell.
-#[venus::cell]
-pub fn config_copy() -> Config {
-    Config {
-        name: "Venus Test".to_string(),
-        count: 5,
-    }
-}
-
-
-/// New cell
-#[venus::cell]
-pub fn new_cell_1() -> String {
-    "Hello".to_string()
-}
-
 /// # Numbers
 ///
 /// Generate a sequence of squared numbers.
@@ -64,6 +46,7 @@ pub fn report(config: &Config, numbers: &Vec<i32>, sum: &i32) -> Report {
         total: *sum,
     }
 }
+
 
 // Types
 #[derive(Debug, Clone, Serialize, Deserialize)]

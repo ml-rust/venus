@@ -97,13 +97,13 @@ impl CellCompiler {
         code.push_str("#![allow(dead_code)]\n\n");
 
         // Import dependencies from universe (always built, includes rkyv)
-        // NOTE: We use explicit imports to avoid symbol collisions with user code.
-        // User dependencies are re-exported from venus_universe, so glob imports
-        // could shadow user-defined types like `Error`, `Result`, etc.
+        // NOTE: venus_universe includes user-defined types from the notebook,
+        // external dependencies, and rkyv. The glob import is safe because:
+        // 1. User types are defined in the notebook itself
+        // 2. rkyv::rancor::Error is aliased as RkyvError to avoid conflicts
+        // 3. Cells can shadow imports locally if needed
         code.push_str("extern crate venus_universe;\n");
-        code.push_str("use venus_universe::{rkyv, RkyvError};\n");
-        // Alias venus so that `use venus::...` statements in notebook source work
-        code.push_str("use venus_universe::venus;\n\n");
+        code.push_str("use venus_universe::*;\n\n");
 
         // Comment with source location for error mapping (not a real directive)
         code.push_str(&format!(

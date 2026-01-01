@@ -291,7 +291,11 @@ impl NotebookSession {
 
     /// Get the full notebook state.
     pub fn get_state(&self) -> ServerMessage {
-        let order = match self.graph.topological_order() {
+        // Source order: cells in the order they appear in the .rs file
+        let source_order: Vec<CellId> = self.cells.iter().map(|c| c.id).collect();
+
+        // Execution order: topologically sorted for dependency resolution
+        let execution_order = match self.graph.topological_order() {
             Ok(order) => order,
             Err(e) => {
                 tracing::error!("Failed to compute execution order: {}", e);
@@ -302,7 +306,8 @@ impl NotebookSession {
         ServerMessage::NotebookState {
             path: self.path.display().to_string(),
             cells: self.cell_states.values().cloned().collect(),
-            execution_order: order,
+            source_order,
+            execution_order,
         }
     }
 

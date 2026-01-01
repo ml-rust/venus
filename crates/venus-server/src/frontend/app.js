@@ -15,7 +15,8 @@ const state = {
     maxReconnectAttempts: 10,
     reconnectDelay: 1000,
     cells: new Map(),
-    executionOrder: [],
+    sourceOrder: [],      // Order cells appear in .rs file (for display)
+    executionOrder: [],   // Topological order (for execution)
     editors: new Map(),
     monacoReady: false,
     // graphVisible: false,  // Hidden (plotr in development)
@@ -246,6 +247,7 @@ function handleServerMessage(msg) {
 
 function handleNotebookState(msg) {
     state.notebookPath = msg.path;
+    state.sourceOrder = msg.source_order || msg.execution_order;  // Fallback for compatibility
     state.executionOrder = msg.execution_order;
 
     elements.notebookPath.textContent = msg.path;
@@ -546,8 +548,8 @@ function renderCells() {
         return;
     }
 
-    // Render cells in execution order
-    state.executionOrder.forEach(cellId => {
+    // Render cells in source file order
+    state.sourceOrder.forEach(cellId => {
         const cell = state.cells.get(cellId);
         if (cell) {
             const cellEl = createCellElement(cell);
@@ -1061,11 +1063,75 @@ function insertCellAtEnd() {
 
 function confirmDeleteCell(cellId) {
     // Find the cell name for the confirmation message
-    const cell = state.cells.find(c => c.id === cellId);
+    const cell = state.cells.get(cellId);
     const cellName = cell ? cell.name : `Cell ${cellId}`;
 
-    if (confirm(`Delete cell "${cellName}"? This cannot be undone.`)) {
-        deleteCell(cellId);
+    showConfirmDialog({
+        title: 'Delete Cell',
+        message: `Delete cell ${cellName}?`,
+        confirmText: 'Delete',
+        onConfirm: () => deleteCell(cellId)
+    });
+}
+
+// Custom confirmation dialog
+function showConfirmDialog({ title, message, confirmText = 'Confirm', onConfirm }) {
+    // Create modal if it doesn't exist
+    let overlay = document.getElementById('modal-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'modal-overlay';
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal">
+                <div class="modal-title"></div>
+                <div class="modal-message"></div>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-cancel">Cancel</button>
+                    <button class="modal-btn modal-btn-danger"></button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        // Close on overlay click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) hideConfirmDialog();
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && overlay.classList.contains('visible')) {
+                hideConfirmDialog();
+            }
+        });
+
+        // Cancel button
+        overlay.querySelector('.modal-btn-cancel').addEventListener('click', hideConfirmDialog);
+    }
+
+    // Set content
+    overlay.querySelector('.modal-title').textContent = title;
+    overlay.querySelector('.modal-message').textContent = message;
+    const confirmBtn = overlay.querySelector('.modal-btn-danger');
+    confirmBtn.textContent = confirmText;
+
+    // Set confirm handler
+    const newConfirmBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+    newConfirmBtn.addEventListener('click', () => {
+        hideConfirmDialog();
+        onConfirm();
+    });
+
+    // Show modal
+    overlay.classList.add('visible');
+}
+
+function hideConfirmDialog() {
+    const overlay = document.getElementById('modal-overlay');
+    if (overlay) {
+        overlay.classList.remove('visible');
     }
 }
 

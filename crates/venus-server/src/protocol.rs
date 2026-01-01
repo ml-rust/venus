@@ -106,7 +106,9 @@ pub enum ServerMessage {
         path: String,
         /// All cells in the notebook.
         cells: Vec<CellState>,
-        /// Execution order (topologically sorted cell IDs).
+        /// Source order (cell IDs in the order they appear in the .rs file).
+        source_order: Vec<CellId>,
+        /// Execution order (topologically sorted cell IDs for dependency resolution).
         execution_order: Vec<CellId>,
     },
 

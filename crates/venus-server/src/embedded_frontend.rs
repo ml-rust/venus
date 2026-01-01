@@ -28,7 +28,7 @@ pub fn serve_static(path: String) -> Response<Body> {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
-                .header(header::CACHE_CONTROL, "public, max-age=3600")
+                .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
                 .body(Body::from(content.data.into_owned()))
                 .unwrap()
         }

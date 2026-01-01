@@ -18,6 +18,18 @@ pub fn config() -> Config {
     }
 }
 
+
+/// # Configuration
+///
+/// Basic configuration cell.
+#[venus::cell]
+pub fn config_copy() -> Config {
+    Config {
+        name: "Venus Test".to_string(),
+        count: 5,
+    }
+}
+
 /// # Numbers
 ///
 /// Generate a sequence of squared numbers.

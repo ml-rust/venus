@@ -1,0 +1,46 @@
+[package]
+name = "venus-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebSocket server for Venus interactive notebooks"
+
+[features]
+default = ["embedded-frontend"]
+embedded-frontend = ["dep:rust-embed", "dep:mime_guess"]
+
+[dependencies]
+venus.workspace = true
+venus-core.workspace = true
+venus-sync.workspace = true
+
+# Web framework
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+
+# Async runtime
+tokio.workspace = true
+futures.workspace = true
+
+# File watching
+notify.workspace = true
+notify-debouncer-mini.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Embedded frontend (optional)
+rust-embed = { version = "8.5", optional = true }
+mime_guess = { version = "2.0", optional = true }
+
+[dev-dependencies]
+tempfile = "3.20"

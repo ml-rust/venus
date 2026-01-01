@@ -1,0 +1,28 @@
+[package]
+name = "venus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reactive notebook environment for Rust"
+
+[dependencies]
+venus-macros.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Optional rich output integrations
+polars = { version = "0.46", optional = true, default-features = false, features = ["lazy", "fmt"] }
+image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg"] }
+
+[features]
+default = []
+# Enable polars DataFrame rendering (HTML tables)
+polars = ["dep:polars"]
+# Enable image rendering (PNG output)
+image = ["dep:image"]
+# All optional integrations
+full = ["polars", "image"]
+
+[[example]]
+name = "hello"
+path = "../../examples/hello.rs"

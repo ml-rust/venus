@@ -1,0 +1,28 @@
+[package]
+name = "venus-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core engine for Venus reactive notebook environment"
+
+[dependencies]
+syn = { workspace = true, features = ["full", "parsing", "visit", "extra-traits"] }
+quote.workspace = true
+proc-macro2.workspace = true
+petgraph.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+rkyv.workspace = true
+salsa.workspace = true
+libloading.workspace = true
+thiserror.workspace = true
+rustc-hash.workspace = true
+tracing.workspace = true
+which.workspace = true
+rayon.workspace = true
+libc.workspace = true
+uuid = { version = "1.11", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.20"

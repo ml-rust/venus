@@ -1,0 +1,17 @@
+[package]
+name = "venus-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sync engine for Venus - converts .rs notebooks to .ipynb"
+
+[dependencies]
+venus-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3.20"

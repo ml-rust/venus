@@ -1,0 +1,240 @@
+//! Venus CLI - Reactive notebook environment for Rust.
+
+mod build;
+mod colors;
+mod executor;
+mod export;
+mod output;
+mod run;
+mod serve;
+mod sync;
+mod watch;
+
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(name = "venus")]
+#[command(about = "Reactive notebook environment for Rust")]
+#[command(version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    /// Enable verbose logging
+    #[arg(short, long, global = true)]
+    verbose: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run a notebook headlessly
+    Run {
+        /// Path to the notebook (.rs file)
+        notebook: String,
+
+        /// Run only a specific cell
+        #[arg(long)]
+        cell: Option<String>,
+
+        /// Use release mode (LLVM backend, optimized)
+        #[arg(long)]
+        release: bool,
+    },
+
+    /// Start the interactive notebook server
+    Serve {
+        /// Path to the notebook or directory
+        path: String,
+
+        /// Port to listen on
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+    },
+
+    /// Sync .rs notebook to .ipynb format
+    Sync {
+        /// Path to the notebook (.rs file)
+        notebook: String,
+
+        /// Watch for changes
+        #[arg(short, long)]
+        watch: bool,
+    },
+
+    /// Build notebook as standalone binary
+    Build {
+        /// Path to the notebook (.rs file)
+        notebook: String,
+
+        /// Output path
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Build with optimizations
+        #[arg(long)]
+        release: bool,
+    },
+
+    /// Create a new notebook from template
+    New {
+        /// Name of the notebook (without .rs extension)
+        name: String,
+    },
+
+    /// Export notebook as standalone HTML file
+    Export {
+        /// Path to the notebook (.rs file)
+        notebook: String,
+
+        /// Output path for HTML file
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Use release mode (LLVM backend, optimized)
+        #[arg(long)]
+        release: bool,
+
+        /// Include dark theme (default: true)
+        #[arg(long, default_value = "true")]
+        dark: bool,
+    },
+
+    /// Watch notebook and auto-run on changes
+    Watch {
+        /// Path to the notebook (.rs file)
+        notebook: String,
+
+        /// Run only a specific cell (and its dependencies)
+        #[arg(long)]
+        cell: Option<String>,
+
+        /// Use release mode (LLVM backend, optimized)
+        #[arg(long)]
+        release: bool,
+
+        /// Clear screen before each run
+        #[arg(long, default_value = "true")]
+        clear: bool,
+    },
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    // Initialize logging
+    let filter = if cli.verbose {
+        tracing_subscriber::EnvFilter::from_default_env()
+            .add_directive(tracing::Level::DEBUG.into())
+    } else {
+        tracing_subscriber::EnvFilter::from_default_env().add_directive(tracing::Level::WARN.into())
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
+
+    match cli.command {
+        Commands::Run {
+            notebook,
+            cell,
+            release,
+        } => run::execute(&notebook, cell.as_deref(), release)?,
+
+        Commands::Serve { path, port } => {
+            serve::execute(&path, port).await?;
+        }
+
+        Commands::Sync { notebook, watch } => {
+            sync::execute(&notebook, watch)?;
+        }
+
+        Commands::Build {
+            notebook,
+            output,
+            release,
+        } => {
+            build::execute(&notebook, output.as_deref(), release)?;
+        }
+
+        Commands::New { name } => {
+            create_new_notebook(&name)?;
+        }
+
+        Commands::Export {
+            notebook,
+            output,
+            release,
+            dark,
+        } => {
+            export::execute(&notebook, output.as_deref(), release, dark)?;
+        }
+
+        Commands::Watch {
+            notebook,
+            cell,
+            release,
+            clear,
+        } => {
+            watch::execute(&notebook, cell.as_deref(), release, clear).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Create a new notebook from template.
+fn create_new_notebook(name: &str) -> anyhow::Result<()> {
+    use std::fs;
+    use std::path::Path;
+
+    let filename = if name.ends_with(".rs") {
+        name.to_string()
+    } else {
+        format!("{}.rs", name)
+    };
+
+    let path = Path::new(&filename);
+    if path.exists() {
+        anyhow::bail!("File {} already exists", filename);
+    }
+
+    let notebook_name = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let template = format!(
+        r#"//! # {name}
+//!
+//! A Venus reactive notebook.
+//!
+//! ```cargo
+//! [dependencies]
+//! serde = {{ version = "1", features = ["derive"] }}
+//! ```
+
+use venus::prelude::*;
+
+/// First cell - returns a greeting message.
+#[venus::cell]
+pub fn greeting() -> String {{
+    "Hello from Venus!".to_string()
+}}
+
+/// Second cell - processes the greeting.
+#[venus::cell]
+pub fn process(greeting: &String) -> String {{
+    format!("Processed: {{}}", greeting)
+}}
+"#,
+        name = notebook_name
+    );
+
+    fs::write(path, template)?;
+    println!("Created new notebook: {}", filename);
+
+    Ok(())
+}

@@ -1,0 +1,46 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo lock file (optional for libraries, but Venus has binaries)
+# Cargo.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.*.sw?
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Venus-specific
+.venus/
+
+# Compiled dynamic libraries (from Cranelift/LLVM tests)
+*.so
+*.dylib
+*.dll
+
+# Test artifacts
+/tests/cranelift_validation/*.so
+/tests/cranelift_validation/*.dylib
+/tests/cranelift_validation/*.dll
+
+# Generated notebooks
+*.ipynb
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+resource
+CLAUDE.md

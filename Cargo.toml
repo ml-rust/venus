@@ -1,0 +1,86 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/venus",
+    "crates/venus-macros",
+    "crates/venus-core",
+    "crates/venus-sync",
+    "crates/venus-server",
+    "crates/venus-cli",
+    "crates/venus-worker",
+]
+exclude = [
+    "examples/.venus",
+    "tests/.venus",
+    "*/.venus",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ml-rust/venus"
+
+[workspace.dependencies]
+# Internal crates
+venus = { path = "crates/venus" }
+venus-macros = { path = "crates/venus-macros" }
+venus-core = { path = "crates/venus-core" }
+venus-sync = { path = "crates/venus-sync" }
+venus-server = { path = "crates/venus-server" }
+
+# Parsing and AST
+syn = { version = "2.0.112", features = ["full", "parsing", "visit", "extra-traits"] }
+quote = "1.0.42"
+proc-macro2 = { version = "1.0.104", features = ["span-locations"] }
+
+# Graph
+petgraph = "0.8.3"
+
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+bincode = "2.0.0-rc.3"  # Last stable 2.x release (3.0.0 is a protest release)
+rkyv = "0.8.12"  # default features include bytecheck for validation
+
+# Incremental computation
+salsa = "0.25.2"
+
+# Dynamic loading
+libloading = "0.9.0"
+
+# Async runtime
+tokio = { version = "1.48.0", features = ["full"] }
+
+# CLI
+clap = { version = "4.5.53", features = ["derive"] }
+
+# Error handling
+thiserror = "2.0.17"
+anyhow = "1.0.100"
+
+# Utilities
+uuid = { version = "1.19.0", features = ["v4"] }
+rustc-hash = "2.1.1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+libc = "0.2.178"
+which = "8.0.0"
+
+# Parallelism
+rayon = "1.10"
+
+# Encoding
+base64 = "0.22"
+
+# Web server
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# File watching
+notify = "8.0"
+notify-debouncer-mini = "0.6"
+
+# WebSocket
+futures = "0.3"

@@ -1,0 +1,31 @@
+[package]
+name = "venus-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Worker process for Venus cell execution with process isolation"
+
+[[bin]]
+name = "venus-worker"
+path = "src/main.rs"
+
+[dependencies]
+# Core dependencies
+venus-core = { path = "../venus-core" }
+venus = { path = "../venus" }
+
+# Serialization for IPC
+bincode.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Dynamic loading
+libloading.workspace = true
+
+# Error handling
+anyhow.workspace = true
+
+# Utilities
+libc.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

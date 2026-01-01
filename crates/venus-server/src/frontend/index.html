@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Venus Notebook</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
+</head>
+<body>
+    <div id="app">
+        <header class="header">
+            <div class="header-left">
+                <button class="btn btn-icon" id="variables-toggle-btn" title="Toggle Variable Explorer">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+                    </svg>
+                </button>
+                <h1 class="logo">Venus</h1>
+                <span class="notebook-path" id="notebook-path"></span>
+            </div>
+            <div class="header-right">
+                <span class="connection-status" id="connection-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </span>
+                <button class="btn btn-primary" id="run-all-btn" title="Run All Cells (Shift+Enter)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    Run All
+                </button>
+                <button class="btn btn-secondary" id="sync-btn" title="Sync to .ipynb">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                    </svg>
+                    Sync
+                </button>
+                <!-- Graph toggle button hidden (plotr in development)
+                <button class="btn btn-icon" id="graph-toggle-btn" title="Toggle Dependency Graph">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="6" cy="6" r="3"/>
+                        <circle cx="18" cy="6" r="3"/>
+                        <circle cx="12" cy="18" r="3"/>
+                        <path d="M6 9v3a6 6 0 0 0 6 6m6-9v3a6 6 0 0 1-6 6" stroke="currentColor" stroke-width="2" fill="none"/>
+                    </svg>
+                </button>
+                -->
+            </div>
+        </header>
+
+        <main class="main-content">
+            <aside class="variable-explorer" id="variable-explorer">
+                <div class="explorer-header">
+                    <h3>Variables</h3>
+                    <button class="btn btn-icon btn-close" id="explorer-toggle-btn" title="Toggle Variable Explorer">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="explorer-content" id="explorer-content">
+                    <div class="explorer-empty">No variables yet</div>
+                </div>
+            </aside>
+            <div class="cells-container" id="cells-container">
+                <!-- Cells will be rendered here -->
+            </div>
+            <!-- Graph panel hidden (plotr in development)
+            <aside class="graph-panel hidden" id="graph-panel">
+                <div class="graph-header">
+                    <h3>Dependency Graph</h3>
+                    <button class="btn btn-icon btn-close" id="graph-close-btn">&times;</button>
+                </div>
+                <div class="graph-container" id="graph-container"></div>
+            </aside>
+            -->
+        </main>
+
+        <footer class="footer">
+            <div class="footer-left">
+                <span id="cell-count">0 cells</span>
+                <span class="separator">|</span>
+                <span id="execution-time"></span>
+            </div>
+            <div class="footer-right">
+                <span class="keyboard-hint">Shift+Enter: Run All</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Toast notifications -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    <!-- D3.js for graph visualization (hidden - plotr in development)
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
+    -->
+    <!-- Marked for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <!-- Application scripts -->
+    <script src="/static/app.js"></script>
+    <!-- Graph script hidden (plotr in development)
+    <script src="/static/graph.js"></script>
+    -->
+    <script src="/static/lsp-client.js"></script>
+</body>
+</html>

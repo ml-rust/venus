@@ -16,18 +16,18 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-beta.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ml-rust/venus"
 
 [workspace.dependencies]
 # Internal crates
-venus = { path = "crates/venus" }
-venus-macros = { path = "crates/venus-macros" }
-venus-core = { path = "crates/venus-core" }
-venus-sync = { path = "crates/venus-sync" }
-venus-server = { path = "crates/venus-server" }
+venus = { path = "crates/venus", version = "0.1.0-beta.1" }
+venus-macros = { path = "crates/venus-macros", version = "0.1.0-beta.1" }
+venus-core = { path = "crates/venus-core", version = "0.1.0-beta.1" }
+venus-sync = { path = "crates/venus-sync", version = "0.1.0-beta.1" }
+venus-server = { path = "crates/venus-server", version = "0.1.0-beta.1" }
 
 # Parsing and AST
 syn = { version = "2.0.112", features = ["full", "parsing", "visit", "extra-traits"] }

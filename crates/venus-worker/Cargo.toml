@@ -11,8 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 # Core dependencies
-venus-core = { path = "../venus-core" }
-venus = { path = "../venus" }
+venus-core = { path = "../venus-core", version = "0.1.0-beta.1" }
+venus = { path = "../venus", version = "0.1.0-beta.1" }
 
 # Serialization for IPC
 bincode.workspace = true

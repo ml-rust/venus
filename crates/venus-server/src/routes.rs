@@ -25,7 +25,7 @@ use venus_core::execute::ExecutorKillHandle;
 use venus_core::graph::CellId;
 
 use crate::lsp;
-use crate::protocol::{ClientMessage, ServerMessage};
+use crate::protocol::{CellState, ClientMessage, ServerMessage};
 use crate::session::NotebookSession;
 
 #[cfg(feature = "embedded-frontend")]
@@ -451,7 +451,7 @@ async fn handle_client_message(
                 // Collect dirty cells
                 let dirty_cells: Vec<CellId> = session.cell_states()
                     .iter()
-                    .filter(|(_, s)| s.dirty)
+                    .filter(|(_, s)| s.is_dirty())
                     .map(|(id, _)| *id)
                     .collect();
 
@@ -475,7 +475,7 @@ async fn handle_client_message(
                     // Find the new cell's ID by name
                     let new_cell_id = session.cell_states()
                         .iter()
-                        .find(|(_, s)| s.name == new_name)
+                        .find(|(_, s)| s.name().unwrap_or("") == new_name)
                         .map(|(id, _)| *id)
                         .unwrap_or(CellId::new(0));
 
@@ -534,7 +534,7 @@ async fn handle_client_message(
                     // Find the new cell's ID by name
                     let new_cell_id = session.cell_states()
                         .iter()
-                        .find(|(_, s)| s.name == new_name)
+                        .find(|(_, s)| s.name().unwrap_or("") == new_name)
                         .map(|(id, _)| *id)
                         .unwrap_or(CellId::new(0));
 
@@ -665,6 +665,152 @@ async fn handle_client_message(
             session.clear_outputs();
             tracing::info!("All cell outputs cleared");
             // OutputsCleared message already broadcast by clear_outputs()
+        }
+
+        ClientMessage::RenameCell { cell_id, new_display_name } => {
+            let mut session = state.session.write().await;
+
+            match session.rename_cell(cell_id, new_display_name.clone()) {
+                Ok(()) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::CellRenamed {
+                        cell_id,
+                        new_display_name,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::CellRenamed {
+                        cell_id,
+                        new_display_name,
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::InsertMarkdownCell { content, after_cell_id } => {
+            let mut session = state.session.write().await;
+
+            match session.insert_markdown_cell(content, after_cell_id) {
+                Ok(()) => {
+                    // Find the newly inserted markdown cell by looking at the last one
+                    // (insertion adds it to the end of the markdown_cells vec)
+                    let new_cell_id = session.cell_states()
+                        .iter()
+                        .filter_map(|(id, state)| {
+                            if matches!(state, CellState::Markdown { .. }) {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        })
+                        .last()
+                        .unwrap_or(CellId::new(0));
+
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::MarkdownCellInserted {
+                        cell_id: new_cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::MarkdownCellInserted {
+                        cell_id: CellId::new(0),
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::EditMarkdownCell { cell_id, new_content } => {
+            let mut session = state.session.write().await;
+
+            match session.edit_markdown_cell(cell_id, new_content) {
+                Ok(()) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::MarkdownCellEdited {
+                        cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::MarkdownCellEdited {
+                        cell_id,
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::DeleteMarkdownCell { cell_id } => {
+            let mut session = state.session.write().await;
+
+            match session.delete_markdown_cell(cell_id) {
+                Ok(()) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::MarkdownCellDeleted {
+                        cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::MarkdownCellDeleted {
+                        cell_id,
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
+        }
+
+        ClientMessage::MoveMarkdownCell { cell_id, direction } => {
+            let mut session = state.session.write().await;
+
+            match session.move_markdown_cell(cell_id, direction) {
+                Ok(()) => {
+                    // Send confirmation
+                    send_message(sender, &ServerMessage::MarkdownCellMoved {
+                        cell_id,
+                        error: None,
+                    }).await;
+
+                    // Broadcast updated state and undo/redo state to all clients
+                    let state_msg = session.get_state();
+                    session.broadcast(state_msg);
+                    let undo_state = session.get_undo_redo_state();
+                    session.broadcast(undo_state);
+                }
+                Err(e) => {
+                    send_message(sender, &ServerMessage::MarkdownCellMoved {
+                        cell_id,
+                        error: Some(e.to_string()),
+                    }).await;
+                }
+            }
         }
     }
 }

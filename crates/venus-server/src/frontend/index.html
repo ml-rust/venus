@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Venus Notebook</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/highlight-dark.css">
     <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
 </head>
 <body>
@@ -41,11 +42,13 @@
                     </svg>
                     Run All
                 </button>
-                <button class="btn btn-secondary" id="sync-btn" title="Sync to .ipynb">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                <button class="btn btn-secondary" id="sync-btn" title="Export to Jupyter Notebook (.ipynb)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
-                    Sync
+                    Export
                 </button>
                 <!-- Graph toggle button hidden (plotr in development)
                 <button class="btn btn-icon" id="graph-toggle-btn" title="Toggle Dependency Graph">
@@ -116,13 +119,42 @@
     <!-- Toast notifications -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- Highlight.js for syntax highlighting in markdown code blocks -->
+    <script src="/static/highlight.min.js"></script>
+
+    <!-- Marked for Markdown rendering - Load BEFORE Monaco to prevent AMD conflicts -->
+    <script>
+        // Disable AMD temporarily
+        window.__define_backup = window.define;
+        window.define = undefined;
+    </script>
+    <script src="/static/marked.min.js"></script>
+    <script>
+        // Restore AMD
+        window.define = window.__define_backup;
+        delete window.__define_backup;
+
+        // Configure marked to use highlight.js for code blocks
+        if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+            marked.setOptions({
+                highlight: function(code, lang) {
+                    if (lang && hljs.getLanguage(lang)) {
+                        try {
+                            return hljs.highlight(code, { language: lang }).value;
+                        } catch (err) {}
+                    }
+                    return hljs.highlightAuto(code).value;
+                }
+            });
+        }
+    </script>
+
     <!-- Monaco Editor Loader -->
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
     <!-- D3.js for graph visualization (hidden - plotr in development)
     <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
     -->
-    <!-- Marked for Markdown rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+
     <!-- Application scripts -->
     <script src="/static/app.js"></script>
     <!-- Graph script hidden (plotr in development)

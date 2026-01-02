@@ -15,7 +15,7 @@ use venus_core::compile::{
     CellCompiler, CompilationResult, CompilerConfig, ToolchainManager, UniverseBuilder,
 };
 use venus_core::execute::{ExecutorKillHandle, ProcessExecutor};
-use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine, MoveDirection, SourceEditor};
+use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine, MarkdownCell, MoveDirection, SourceEditor};
 use venus_core::paths::NotebookDirs;
 
 use crate::error::{ServerError, ServerResult};
@@ -36,13 +36,16 @@ pub struct NotebookSession {
     /// Path to the notebook file.
     path: PathBuf,
 
-    /// Parsed cells.
+    /// Parsed code cells.
     cells: Vec<CellInfo>,
+
+    /// Parsed markdown cells.
+    markdown_cells: Vec<MarkdownCell>,
 
     /// Dependency graph.
     graph: GraphEngine,
 
-    /// Cell states for clients.
+    /// Cell states for clients (both code and markdown).
     cell_states: HashMap<CellId, CellState>,
 
     /// Toolchain manager.
@@ -147,6 +150,7 @@ impl NotebookSession {
         let mut session = Self {
             path,
             cells: Vec::new(),
+            markdown_cells: Vec::new(),
             graph: GraphEngine::new(),
             cell_states: HashMap::new(),
             toolchain,
@@ -186,10 +190,10 @@ impl NotebookSession {
         self.cells.iter().find(|c| c.id == cell_id)
     }
 
-    /// Set the status of a cell.
+    /// Set the status of a code cell.
     fn set_cell_status(&mut self, cell_id: CellId, status: CellStatus) {
-        if let Some(state) = self.cell_states.get_mut(&cell_id) {
-            state.status = status;
+        if let Some(CellState::Code { status: cell_status, .. }) = self.cell_states.get_mut(&cell_id) {
+            *cell_status = status;
         }
     }
 
@@ -202,17 +206,30 @@ impl NotebookSession {
     pub fn reload(&mut self) -> ServerResult<()> {
         let source = std::fs::read_to_string(&self.path)?;
 
-        // Parse cells
+        // Parse cells (both code and markdown)
         let mut parser = CellParser::new();
-        self.cells = parser.parse_file(&self.path)?;
+        let parse_result = parser.parse_file(&self.path)?;
+        self.cells = parse_result.code_cells;
+        self.markdown_cells = parse_result.markdown_cells;
 
-        // Build graph and update cells with real IDs (parser returns placeholder IDs)
+        // Build graph and update code cells with real IDs (parser returns placeholder IDs)
         self.graph = GraphEngine::new();
         for cell in &mut self.cells {
             let real_id = self.graph.add_cell(cell.clone());
             cell.id = real_id;
         }
         self.graph.resolve_dependencies()?;
+
+        // Assign unique IDs to markdown cells (they don't participate in the dependency graph)
+        let mut next_id = if let Some(max_code_id) = self.cells.iter().map(|c| c.id.as_usize()).max() {
+            max_code_id + 1
+        } else {
+            0
+        };
+        for md_cell in &mut self.markdown_cells {
+            md_cell.id = CellId::new(next_id);
+            next_id += 1;
+        }
 
         // Build universe (always needed for bincode/serde runtime)
         let mut universe_builder =
@@ -225,34 +242,90 @@ impl NotebookSession {
         // Update cell states
         self.update_cell_states();
 
-        // Broadcast graph update
-        self.broadcast_graph_update();
+        // Broadcast full state update (includes all cells, not just graph edges)
+        let state = self.get_state();
+        self.broadcast(state);
 
         Ok(())
+    }
+
+    /// Strip the first heading from a doc comment (since it's used as display name).
+    ///
+    /// If the doc comment starts with `# Heading`, removes that line and returns
+    /// the rest of the content. Otherwise returns the original content.
+    fn strip_display_name_from_description(doc_comment: &Option<String>) -> Option<String> {
+        doc_comment.as_ref().map(|doc| {
+            let lines: Vec<&str> = doc.lines().collect();
+
+            // Find the first heading line
+            if let Some(first_line) = lines.first() {
+                let trimmed = first_line.trim();
+                if trimmed.starts_with('#') {
+                    // Skip the heading line and return the rest
+                    let remaining: Vec<&str> = lines.iter().skip(1)
+                        .map(|s| *s)
+                        .collect();
+
+                    // Trim leading empty lines
+                    let trimmed_lines: Vec<&str> = remaining.iter()
+                        .skip_while(|line| line.trim().is_empty())
+                        .map(|s| *s)
+                        .collect();
+
+                    if trimmed_lines.is_empty() {
+                        return None;
+                    }
+
+                    return Some(trimmed_lines.join("\n"));
+                }
+            }
+
+            // No heading found, return original
+            Some(doc.clone())
+        }).flatten()
     }
 
     /// Update cell states from parsed cells.
     fn update_cell_states(&mut self) {
         let mut new_states = HashMap::new();
 
+        // Add code cells
         for cell in &self.cells {
             let existing = self.cell_states.get(&cell.id);
-            let state = CellState {
+
+            // Extract status, output, dirty from existing state if it's a code cell
+            let (status, output, dirty) = if let Some(CellState::Code { status, output, dirty, .. }) = existing {
+                (*status, output.clone(), *dirty)
+            } else {
+                (CellStatus::default(), None, true)
+            };
+
+            let state = CellState::Code {
                 id: cell.id,
                 name: cell.name.clone(),
+                display_name: cell.display_name.clone(),
                 source: cell.source_code.clone(),
-                description: cell.doc_comment.clone(),
+                description: Self::strip_display_name_from_description(&cell.doc_comment),
                 return_type: cell.return_type.clone(),
                 dependencies: cell
                     .dependencies
                     .iter()
                     .map(|d| d.param_name.clone())
                     .collect(),
-                status: existing.map(|s| s.status).unwrap_or_default(),
-                output: existing.and_then(|s| s.output.clone()),
-                dirty: existing.map(|s| s.dirty).unwrap_or(true),
+                status,
+                output,
+                dirty,
             };
             new_states.insert(cell.id, state);
+        }
+
+        // Add markdown cells
+        for md_cell in &self.markdown_cells {
+            let state = CellState::Markdown {
+                id: md_cell.id,
+                content: md_cell.content.clone(),
+            };
+            new_states.insert(md_cell.id, state);
         }
 
         self.cell_states = new_states;
@@ -291,10 +364,25 @@ impl NotebookSession {
 
     /// Get the full notebook state.
     pub fn get_state(&self) -> ServerMessage {
-        // Source order: cells in the order they appear in the .rs file
-        let source_order: Vec<CellId> = self.cells.iter().map(|c| c.id).collect();
+        // Source order: all cells (code + markdown) in the order they appear in the .rs file
+        let mut all_cells: Vec<(CellId, usize)> = Vec::new();
 
-        // Execution order: topologically sorted for dependency resolution
+        // Add code cells with their line numbers
+        for cell in &self.cells {
+            all_cells.push((cell.id, cell.span.start_line));
+        }
+
+        // Add markdown cells with their line numbers
+        for md_cell in &self.markdown_cells {
+            all_cells.push((md_cell.id, md_cell.span.start_line));
+        }
+
+        // Sort by line number
+        all_cells.sort_by_key(|(_, line)| *line);
+
+        let source_order: Vec<CellId> = all_cells.into_iter().map(|(id, _)| id).collect();
+
+        // Execution order: topologically sorted for dependency resolution (code cells only)
         let execution_order = match self.graph.topological_order() {
             Ok(order) => order,
             Err(e) => {
@@ -434,9 +522,9 @@ impl NotebookSession {
                         self.add_to_history(cell_id, output_arc.clone(), cell_output.clone());
 
                         if let Some(state) = self.cell_states.get_mut(&cell_id) {
-                            state.status = CellStatus::Success;
-                            state.output = Some(cell_output.clone());
-                            state.dirty = false;
+                            state.set_status(CellStatus::Success);
+                            state.set_output(Some(cell_output.clone()));
+                            state.set_dirty(false);
                         }
 
                         self.broadcast(ServerMessage::CellCompleted {
@@ -517,14 +605,14 @@ impl NotebookSession {
     /// Mark a cell as dirty (needs re-execution).
     pub fn mark_dirty(&mut self, cell_id: CellId) {
         if let Some(state) = self.cell_states.get_mut(&cell_id) {
-            state.dirty = true;
+            state.set_dirty(true);
         }
 
         // Also mark dependents as dirty
         let dependents = self.graph.invalidated_cells(cell_id);
         for dep_id in dependents {
             if let Some(state) = self.cell_states.get_mut(&dep_id) {
-                state.dirty = true;
+                state.set_dirty(true);
             }
         }
     }
@@ -595,6 +683,9 @@ impl NotebookSession {
             self.abort();
         }
 
+        // Reload notebook from disk (picks up any file changes)
+        self.reload()?;
+
         // Shutdown old executor and worker pool
         self.executor.shutdown();
 
@@ -613,9 +704,9 @@ impl NotebookSession {
 
         // Reset all cell states to Idle and clear outputs
         for state in self.cell_states.values_mut() {
-            state.status = CellStatus::Idle;
-            state.output = None;
-            state.dirty = false;
+            state.set_status(CellStatus::Idle);
+            state.clear_output();
+            state.set_dirty(false);
         }
 
         // Broadcast kernel restarted message
@@ -639,8 +730,8 @@ impl NotebookSession {
     pub fn clear_outputs(&mut self) {
         // Clear outputs from cell states
         for state in self.cell_states.values_mut() {
-            state.output = None;
-            state.dirty = true; // Mark as needing re-execution
+            state.clear_output();
+            state.set_dirty(true); // Mark as needing re-execution
         }
 
         // Clear output history
@@ -666,7 +757,7 @@ impl NotebookSession {
         };
         order
             .into_iter()
-            .filter(|id| self.cell_states.get(id).is_some_and(|state| state.dirty))
+            .filter(|id| self.cell_states.get(id).is_some_and(|state| state.is_dirty()))
             .collect()
     }
 
@@ -761,7 +852,7 @@ impl NotebookSession {
 
         // Update the cell state
         if let Some(state) = self.cell_states.get_mut(&cell_id) {
-            state.output = Some(display.clone());
+            state.set_output(Some(display.clone()));
         }
 
         // Update history index
@@ -781,7 +872,7 @@ impl NotebookSession {
         // Skip the first one (the changed cell itself) and mark the rest as dirty
         for dep_id in dependents.into_iter().skip(1) {
             if let Some(state) = self.cell_states.get_mut(&dep_id) {
-                state.dirty = true;
+                state.set_dirty(true);
             }
         }
     }
@@ -839,6 +930,26 @@ impl NotebookSession {
             .find(|c| c.id == cell_id)
             .map(|c| c.name.clone())
             .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        // Check if any other cells depend on this cell
+        let dependents: Vec<String> = self.cells
+            .iter()
+            .filter(|c| c.id != cell_id) // Don't check self
+            .filter(|c| {
+                c.dependencies
+                    .iter()
+                    .any(|dep| dep.param_name == cell_name)
+            })
+            .map(|c| c.name.clone())
+            .collect();
+
+        if !dependents.is_empty() {
+            return Err(ServerError::InvalidOperation(format!(
+                "Cannot delete cell '{}' because it is used by: {}",
+                cell_name,
+                dependents.join(", ")
+            )));
+        }
 
         // Load and edit the source file
         let mut editor = SourceEditor::load(&self.path)?;
@@ -920,6 +1031,172 @@ impl NotebookSession {
         Ok(())
     }
 
+    /// Rename a cell's display name.
+    ///
+    /// Updates the cell's doc comment with the new display name and reloads the notebook.
+    pub fn rename_cell(&mut self, cell_id: CellId, new_display_name: String) -> ServerResult<()> {
+        // Find the cell name and current display name
+        let (cell_name, old_display_name) = self.cells
+            .iter()
+            .find(|c| c.id == cell_id)
+            .map(|c| (c.name.clone(), c.display_name.clone()))
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.rename_cell(&cell_name, &new_display_name)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::RenameCell {
+            cell_name,
+            old_display_name,
+            new_display_name,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
+    /// Insert a new markdown cell.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn insert_markdown_cell(&mut self, content: String, after_cell_id: Option<CellId>) -> ServerResult<()> {
+        // Convert cell ID to line number if provided
+        let after_line = after_cell_id.and_then(|id| {
+            // Try to find in code cells
+            self.cells.iter().find(|c| c.id == id)
+                .map(|c| c.span.end_line)
+                .or_else(|| {
+                    // Try to find in markdown cells
+                    self.markdown_cells.iter().find(|m| m.id == id)
+                        .map(|m| m.span.end_line)
+                })
+        });
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.insert_markdown_cell(&content, after_line)?;
+
+        // Get the line range of the newly inserted cell (approximate)
+        let start_line = after_line.map(|l| l + 1).unwrap_or(0);
+        let line_count = content.lines().count();
+        let end_line = start_line + line_count;
+
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::InsertMarkdownCell {
+            start_line,
+            end_line,
+            content: content.clone(),
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
+    /// Edit a markdown cell's content.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn edit_markdown_cell(&mut self, cell_id: CellId, new_content: String) -> ServerResult<()> {
+        // Find the markdown cell
+        let md_cell = self.markdown_cells
+            .iter()
+            .find(|m| m.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let start_line = md_cell.span.start_line;
+        let end_line = md_cell.span.end_line;
+        let old_content = md_cell.content.clone();
+        let is_module_doc = md_cell.is_module_doc;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.edit_markdown_cell(start_line, end_line, &new_content, is_module_doc)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::EditMarkdownCell {
+            start_line,
+            end_line,
+            old_content,
+            new_content,
+            is_module_doc,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
+    /// Delete a markdown cell.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn delete_markdown_cell(&mut self, cell_id: CellId) -> ServerResult<()> {
+        // Find the markdown cell
+        let md_cell = self.markdown_cells
+            .iter()
+            .find(|m| m.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let start_line = md_cell.span.start_line;
+        let end_line = md_cell.span.end_line;
+        let content = md_cell.content.clone();
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.delete_markdown_cell(start_line, end_line)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::DeleteMarkdownCell {
+            start_line,
+            content,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
+    /// Move a markdown cell up or down.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn move_markdown_cell(&mut self, cell_id: CellId, direction: MoveDirection) -> ServerResult<()> {
+        // Find the markdown cell
+        let md_cell = self.markdown_cells
+            .iter()
+            .find(|m| m.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let start_line = md_cell.span.start_line;
+        let end_line = md_cell.span.end_line;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.move_markdown_cell(start_line, end_line, direction)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::MoveMarkdownCell {
+            start_line,
+            end_line,
+            direction,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
     /// Undo the last cell management operation.
     ///
     /// Returns a description of what was undone, or an error if undo failed.
@@ -952,6 +1229,31 @@ impl NotebookSession {
                     MoveDirection::Down => MoveDirection::Up,
                 };
                 editor.move_cell(cell_name, reverse_direction)?;
+            }
+            UndoableOperation::RenameCell { cell_name, old_display_name, .. } => {
+                // Undo rename = restore old display name
+                editor.rename_cell(cell_name, old_display_name)?;
+            }
+            UndoableOperation::InsertMarkdownCell { start_line, end_line, .. } => {
+                // Undo insert markdown = delete it
+                editor.delete_markdown_cell(*start_line, *end_line)?;
+            }
+            UndoableOperation::EditMarkdownCell { start_line, end_line, old_content, is_module_doc, .. } => {
+                // Undo edit markdown = restore old content
+                editor.edit_markdown_cell(*start_line, *end_line, old_content, *is_module_doc)?;
+            }
+            UndoableOperation::DeleteMarkdownCell { start_line, content } => {
+                // Undo delete markdown = restore it
+                let after_line = if *start_line > 0 { Some(start_line - 1) } else { None };
+                editor.insert_markdown_cell(content, after_line)?;
+            }
+            UndoableOperation::MoveMarkdownCell { start_line, end_line, direction } => {
+                // Undo move markdown = move in opposite direction
+                let reverse_direction = match direction {
+                    MoveDirection::Up => MoveDirection::Down,
+                    MoveDirection::Down => MoveDirection::Up,
+                };
+                editor.move_markdown_cell(*start_line, *end_line, reverse_direction)?;
             }
         }
 
@@ -994,6 +1296,30 @@ impl NotebookSession {
             UndoableOperation::MoveCell { cell_name, direction } => {
                 // Redo move = move in same direction
                 editor.move_cell(cell_name, *direction)?;
+            }
+            UndoableOperation::RenameCell { cell_name, new_display_name, .. } => {
+                // Redo rename = apply new display name again
+                editor.rename_cell(cell_name, new_display_name)?;
+            }
+            UndoableOperation::InsertMarkdownCell { start_line, content, .. } => {
+                // Redo insert markdown = insert again at original position
+                let after_line = if *start_line > 0 { Some(start_line - 1) } else { None };
+                editor.insert_markdown_cell(content, after_line)?;
+            }
+            UndoableOperation::EditMarkdownCell { start_line, end_line, new_content, is_module_doc, .. } => {
+                // Redo edit markdown = apply new content again
+                editor.edit_markdown_cell(*start_line, *end_line, new_content, *is_module_doc)?;
+            }
+            UndoableOperation::DeleteMarkdownCell { start_line, content } => {
+                // Redo delete markdown = delete again
+                // We need to find the end line by counting content lines
+                let line_count = content.lines().count();
+                let end_line = start_line + line_count;
+                editor.delete_markdown_cell(*start_line, end_line)?;
+            }
+            UndoableOperation::MoveMarkdownCell { start_line, end_line, direction } => {
+                // Redo move markdown = move in same direction
+                editor.move_markdown_cell(*start_line, *end_line, *direction)?;
             }
         }
 

@@ -49,13 +49,24 @@ pub struct SourceSpan {
     pub end_col: usize,
 }
 
-/// Complete information about a notebook cell.
+/// Type of cell in the notebook.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellType {
+    /// Code cell (executable Rust function with #[venus::cell]).
+    Code,
+    /// Markdown cell (pure text/documentation, non-executable).
+    Markdown,
+}
+
+/// Complete information about a code cell.
 #[derive(Debug, Clone)]
 pub struct CellInfo {
     /// Unique identifier
     pub id: CellId,
     /// Function name (also serves as the output variable name)
     pub name: String,
+    /// Human-readable display name (extracted from doc comment heading or defaults to function name)
+    pub display_name: String,
     /// Dependencies (function parameters)
     pub dependencies: Vec<Dependency>,
     /// Return type (as a string for display)
@@ -68,6 +79,21 @@ pub struct CellInfo {
     pub span: SourceSpan,
     /// Source file path
     pub source_file: PathBuf,
+}
+
+/// Complete information about a markdown cell.
+#[derive(Debug, Clone)]
+pub struct MarkdownCell {
+    /// Unique identifier
+    pub id: CellId,
+    /// Markdown content
+    pub content: String,
+    /// Location in source file
+    pub span: SourceSpan,
+    /// Source file path
+    pub source_file: PathBuf,
+    /// Whether this is the module-level doc comment (appears at the top)
+    pub is_module_doc: bool,
 }
 
 /// The reactive dependency graph engine.
@@ -330,6 +356,7 @@ mod tests {
         CellInfo {
             id: CellId::new(0), // Will be assigned by add_cell
             name: name.to_string(),
+            display_name: name.to_string(), // Default to function name
             dependencies: deps
                 .iter()
                 .map(|&d| Dependency {

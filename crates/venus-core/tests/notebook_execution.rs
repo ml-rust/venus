@@ -40,6 +40,7 @@ impl TestNotebook {
         parser
             .parse_file(&self.path)
             .expect("Failed to parse notebook")
+            .code_cells
     }
 
     /// Build a graph from parsed cells, returning (graph, cell_id_map).

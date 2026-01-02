@@ -18,6 +18,8 @@ pub struct CellData {
     pub id: usize,
     /// Function name
     pub name: String,
+    /// Human-readable display name
+    pub display_name: String,
     /// Parameter names (dependency references)
     pub param_names: Vec<String>,
     /// Parameter types
@@ -43,6 +45,7 @@ impl From<CellInfo> for CellData {
         Self {
             id: info.id.as_usize(),
             name: info.name,
+            display_name: info.display_name,
             param_names: info
                 .dependencies
                 .iter()
@@ -88,6 +91,7 @@ impl From<CellData> for CellInfo {
         Self {
             id: CellId::new(data.id),
             name: data.name,
+            display_name: data.display_name,
             dependencies,
             return_type: data.return_type,
             doc_comment: data.doc_comment,
@@ -317,6 +321,7 @@ mod tests {
         let info = CellInfo {
             id: CellId::new(0),
             name: "test".to_string(),
+            display_name: "Test Cell".to_string(),
             dependencies: vec![
                 Dependency {
                     param_name: "x".to_string(),
@@ -346,6 +351,7 @@ mod tests {
         // Convert to CellData
         let data: CellData = info.clone().into();
         assert_eq!(data.name, "test");
+        assert_eq!(data.display_name, "Test Cell");
         assert_eq!(data.param_names, vec!["x", "y"]);
         assert_eq!(data.param_types, vec!["i32", "Vec<u8>"]);
         assert_eq!(data.param_is_ref, vec![true, true]);

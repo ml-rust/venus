@@ -100,6 +100,44 @@ pub enum ClientMessage {
 
     /// Clear all cell outputs without restarting the kernel.
     ClearOutputs,
+
+    /// Rename a cell's display name.
+    RenameCell {
+        /// Cell to rename.
+        cell_id: CellId,
+        /// New display name.
+        new_display_name: String,
+    },
+
+    /// Insert a new markdown cell.
+    InsertMarkdownCell {
+        /// Markdown content.
+        content: String,
+        /// Cell ID to insert after. None = insert at beginning.
+        after_cell_id: Option<CellId>,
+    },
+
+    /// Edit a markdown cell's content.
+    EditMarkdownCell {
+        /// Cell to edit.
+        cell_id: CellId,
+        /// New markdown content.
+        new_content: String,
+    },
+
+    /// Delete a markdown cell.
+    DeleteMarkdownCell {
+        /// Cell to delete.
+        cell_id: CellId,
+    },
+
+    /// Move a markdown cell up or down.
+    MoveMarkdownCell {
+        /// Cell to move.
+        cell_id: CellId,
+        /// Direction to move.
+        direction: MoveDirection,
+    },
 }
 
 /// Messages sent from server to client.
@@ -279,29 +317,145 @@ pub enum ServerMessage {
         /// Error message if clear failed.
         error: Option<String>,
     },
+
+    /// Cell rename result.
+    CellRenamed {
+        /// ID of the renamed cell.
+        cell_id: CellId,
+        /// New display name.
+        new_display_name: String,
+        /// Error message if rename failed.
+        error: Option<String>,
+    },
+
+    /// Markdown cell insertion result.
+    MarkdownCellInserted {
+        /// ID of the newly created markdown cell.
+        cell_id: CellId,
+        /// Error message if insertion failed.
+        error: Option<String>,
+    },
+
+    /// Markdown cell edit result.
+    MarkdownCellEdited {
+        /// ID of the edited markdown cell.
+        cell_id: CellId,
+        /// Error message if edit failed.
+        error: Option<String>,
+    },
+
+    /// Markdown cell deletion result.
+    MarkdownCellDeleted {
+        /// ID of the deleted markdown cell.
+        cell_id: CellId,
+        /// Error message if deletion failed.
+        error: Option<String>,
+    },
+
+    /// Markdown cell move result.
+    MarkdownCellMoved {
+        /// ID of the moved markdown cell.
+        cell_id: CellId,
+        /// Error message if move failed.
+        error: Option<String>,
+    },
 }
 
-/// State of a single cell.
+/// State of a single cell (code or markdown).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CellState {
-    /// Unique cell identifier.
-    pub id: CellId,
-    /// Cell name (function name).
-    pub name: String,
-    /// Cell source code.
-    pub source: String,
-    /// Doc comment / description.
-    pub description: Option<String>,
-    /// Return type.
-    pub return_type: String,
-    /// Dependencies (parameter names).
-    pub dependencies: Vec<String>,
-    /// Current execution status.
-    pub status: CellStatus,
-    /// Last output if available.
-    pub output: Option<CellOutput>,
-    /// Whether the cell needs re-execution.
-    pub dirty: bool,
+#[serde(tag = "cell_type", rename_all = "snake_case")]
+pub enum CellState {
+    /// Code cell (executable function).
+    Code {
+        /// Unique cell identifier.
+        id: CellId,
+        /// Cell name (function name).
+        name: String,
+        /// Human-readable display name.
+        display_name: String,
+        /// Cell source code.
+        source: String,
+        /// Doc comment / description.
+        description: Option<String>,
+        /// Return type.
+        return_type: String,
+        /// Dependencies (parameter names).
+        dependencies: Vec<String>,
+        /// Current execution status.
+        status: CellStatus,
+        /// Last output if available.
+        output: Option<CellOutput>,
+        /// Whether the cell needs re-execution.
+        dirty: bool,
+    },
+    /// Markdown cell (non-executable documentation).
+    Markdown {
+        /// Unique cell identifier.
+        id: CellId,
+        /// Markdown content.
+        content: String,
+    },
+}
+
+impl CellState {
+    /// Get the cell ID.
+    pub fn id(&self) -> CellId {
+        match self {
+            CellState::Code { id, .. } | CellState::Markdown { id, .. } => *id,
+        }
+    }
+
+    /// Get the cell name (only for code cells).
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            CellState::Code { name, .. } => Some(name),
+            CellState::Markdown { .. } => None,
+        }
+    }
+
+    /// Check if cell is dirty (only code cells can be dirty).
+    pub fn is_dirty(&self) -> bool {
+        match self {
+            CellState::Code { dirty, .. } => *dirty,
+            CellState::Markdown { .. } => false,
+        }
+    }
+
+    /// Set dirty flag (only for code cells).
+    pub fn set_dirty(&mut self, value: bool) {
+        if let CellState::Code { dirty, .. } = self {
+            *dirty = value;
+        }
+    }
+
+    /// Get status (only for code cells).
+    pub fn status(&self) -> Option<CellStatus> {
+        match self {
+            CellState::Code { status, .. } => Some(*status),
+            CellState::Markdown { .. } => None,
+        }
+    }
+
+    /// Set status (only for code cells).
+    pub fn set_status(&mut self, new_status: CellStatus) {
+        if let CellState::Code { status, .. } = self {
+            *status = new_status;
+        }
+    }
+
+    /// Set output (only for code cells).
+    pub fn set_output(&mut self, new_output: Option<CellOutput>) {
+        if let CellState::Code { output, .. } = self {
+            *output = new_output;
+        }
+    }
+
+    /// Clear output (only for code cells).
+    pub fn clear_output(&mut self) {
+        if let CellState::Code { output, .. } = self {
+            *output = None;
+        }
+    }
 }
 
 /// Cell execution status.

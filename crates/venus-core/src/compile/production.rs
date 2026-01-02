@@ -69,7 +69,8 @@ impl ProductionBuilder {
 
         // Parse cells
         let mut parser = CellParser::new();
-        self.cells = parser.parse_file(path)?;
+        let parse_result = parser.parse_file(path)?;
+        self.cells = parse_result.code_cells;
 
         // Validate unique cell names
         self.validate_unique_cell_names()?;
@@ -414,6 +415,7 @@ mod tests {
             CellInfo {
                 id: CellId::new(0),
                 name: "foo".to_string(),
+                display_name: "foo".to_string(),
                 dependencies: vec![],
                 return_type: "i32".to_string(),
                 doc_comment: None,
@@ -424,6 +426,7 @@ mod tests {
             CellInfo {
                 id: CellId::new(1),
                 name: "bar".to_string(),
+                display_name: "bar".to_string(),
                 dependencies: vec![],
                 return_type: "i32".to_string(),
                 doc_comment: None,
@@ -438,6 +441,7 @@ mod tests {
         builder.cells.push(CellInfo {
             id: CellId::new(2),
             name: "foo".to_string(), // Duplicate!
+            display_name: "foo".to_string(),
             dependencies: vec![],
             return_type: "i32".to_string(),
             doc_comment: None,

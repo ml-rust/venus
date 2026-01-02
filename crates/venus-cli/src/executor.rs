@@ -167,8 +167,9 @@ impl NotebookExecutor {
         // Parse cells
         Self::print_step("Parsing cells");
         let mut parser = CellParser::new();
-        let cells = parser.parse_file(&abs_path)?;
-        Self::print_success(Some(&format!("{} cells", cells.len())));
+        let parse_result = parser.parse_file(&abs_path)?;
+        let cells = parse_result.code_cells;
+        Self::print_success(Some(&format!("{} code cells", cells.len())));
 
         // Build dependency graph
         Self::print_step("Building dependency graph");

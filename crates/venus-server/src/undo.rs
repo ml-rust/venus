@@ -45,6 +45,58 @@ pub enum UndoableOperation {
         /// Original direction (undo reverses it).
         direction: MoveDirection,
     },
+
+    /// A cell's display name was renamed. Undo = restore old name.
+    RenameCell {
+        /// Name of the cell (function name).
+        cell_name: String,
+        /// Old display name (for undo).
+        old_display_name: String,
+        /// New display name.
+        new_display_name: String,
+    },
+
+    /// A markdown cell was inserted. Undo = delete it.
+    InsertMarkdownCell {
+        /// Start line of the inserted markdown cell.
+        start_line: usize,
+        /// End line of the inserted markdown cell.
+        end_line: usize,
+        /// Content of the inserted cell (for redo).
+        content: String,
+    },
+
+    /// A markdown cell was edited. Undo = restore old content.
+    EditMarkdownCell {
+        /// Start line of the markdown cell.
+        start_line: usize,
+        /// End line of the markdown cell.
+        end_line: usize,
+        /// Old content (for undo).
+        old_content: String,
+        /// New content.
+        new_content: String,
+        /// Whether this is a module-level doc comment (//! vs ///).
+        is_module_doc: bool,
+    },
+
+    /// A markdown cell was deleted. Undo = restore it.
+    DeleteMarkdownCell {
+        /// Start line where the cell was located.
+        start_line: usize,
+        /// Content of the deleted cell.
+        content: String,
+    },
+
+    /// A markdown cell was moved. Undo = move in opposite direction.
+    MoveMarkdownCell {
+        /// Start line of the moved cell.
+        start_line: usize,
+        /// End line of the moved cell.
+        end_line: usize,
+        /// Direction it was moved.
+        direction: MoveDirection,
+    },
 }
 
 impl UndoableOperation {
@@ -67,6 +119,25 @@ impl UndoableOperation {
                 };
                 format!("Move '{}' {}", cell_name, dir_str)
             }
+            Self::RenameCell { cell_name, new_display_name, .. } => {
+                format!("Rename '{}' to '{}'", cell_name, new_display_name)
+            }
+            Self::InsertMarkdownCell { start_line, .. } => {
+                format!("Insert markdown cell at line {}", start_line)
+            }
+            Self::EditMarkdownCell { start_line, .. } => {
+                format!("Edit markdown cell at line {}", start_line)
+            }
+            Self::DeleteMarkdownCell { start_line, .. } => {
+                format!("Delete markdown cell at line {}", start_line)
+            }
+            Self::MoveMarkdownCell { start_line, direction, .. } => {
+                let dir_str = match direction {
+                    MoveDirection::Up => "up",
+                    MoveDirection::Down => "down",
+                };
+                format!("Move markdown cell at line {} {}", start_line, dir_str)
+            }
         }
     }
 
@@ -88,6 +159,25 @@ impl UndoableOperation {
                     MoveDirection::Down => "up",
                 };
                 format!("Move '{}' {}", cell_name, dir_str)
+            }
+            Self::RenameCell { cell_name, old_display_name, .. } => {
+                format!("Rename '{}' back to '{}'", cell_name, old_display_name)
+            }
+            Self::InsertMarkdownCell { start_line, .. } => {
+                format!("Delete markdown cell at line {}", start_line)
+            }
+            Self::EditMarkdownCell { start_line, .. } => {
+                format!("Restore markdown cell at line {}", start_line)
+            }
+            Self::DeleteMarkdownCell { start_line, .. } => {
+                format!("Restore markdown cell at line {}", start_line)
+            }
+            Self::MoveMarkdownCell { start_line, direction, .. } => {
+                let dir_str = match direction {
+                    MoveDirection::Up => "down",
+                    MoveDirection::Down => "up",
+                };
+                format!("Move markdown cell at line {} {}", start_line, dir_str)
             }
         }
     }

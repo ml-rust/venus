@@ -482,6 +482,7 @@ mod tests {
         CellInfo {
             id: CellId::new(0),
             name: "test_cell".to_string(),
+            display_name: "test_cell".to_string(),
             dependencies: vec![],
             return_type: "i32".to_string(),
             doc_comment: None,
@@ -519,6 +520,7 @@ mod tests {
         let cell = CellInfo {
             id: CellId::new(1),
             name: "process".to_string(),
+            display_name: "process".to_string(),
             dependencies: vec![Dependency {
                 param_name: "config".to_string(),
                 param_type: "Config".to_string(),

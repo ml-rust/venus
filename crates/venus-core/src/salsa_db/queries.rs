@@ -129,8 +129,8 @@ pub fn parse_cells_result(
 
     let mut parser = CellParser::new();
     match parser.parse_str(&text, &path) {
-        Ok(cells) => {
-            QueryResult::Ok(cells.into_iter().map(CellData::from).collect())
+        Ok(parse_result) => {
+            QueryResult::Ok(parse_result.code_cells.into_iter().map(CellData::from).collect())
         }
         Err(e) => {
             let error_msg = format!("Failed to parse '{}': {}", path.display(), e);

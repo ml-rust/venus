@@ -218,6 +218,18 @@ function handleServerMessage(msg) {
         case 'cell_moved':
             handleCellMoved(msg);
             break;
+        case 'markdown_cell_inserted':
+            handleMarkdownCellInserted(msg);
+            break;
+        case 'markdown_cell_edited':
+            handleMarkdownCellEdited(msg);
+            break;
+        case 'markdown_cell_deleted':
+            handleMarkdownCellDeleted(msg);
+            break;
+        case 'markdown_cell_moved':
+            handleMarkdownCellMoved(msg);
+            break;
         case 'undo_result':
             handleUndoResult(msg);
             break;
@@ -253,7 +265,12 @@ function handleServerMessage(msg) {
     }
 }
 
+let notebookStateCallCount = 0;
 function handleNotebookState(msg) {
+    notebookStateCallCount++;
+    console.log(`[DEBUG] handleNotebookState called (count: ${notebookStateCallCount})`);
+    console.trace('[DEBUG] Call stack');
+
     state.notebookPath = msg.path;
     state.sourceOrder = msg.source_order || msg.execution_order;  // Fallback for compatibility
     state.executionOrder = msg.execution_order;
@@ -406,6 +423,41 @@ function handleCellMoved(msg) {
     // The notebook_state message will follow to update the UI
 }
 
+function handleMarkdownCellInserted(msg) {
+    if (msg.error) {
+        showToast(`Failed to insert markdown cell: ${msg.error}`, 'error');
+    } else {
+        showToast('Markdown cell added', 'success');
+        // The notebook_state message will follow to update the UI
+    }
+}
+
+function handleMarkdownCellEdited(msg) {
+    if (msg.error) {
+        showToast(`Failed to edit markdown cell: ${msg.error}`, 'error');
+    } else {
+        showToast('Markdown cell updated', 'success');
+        // The notebook_state message will follow to update the UI
+    }
+}
+
+function handleMarkdownCellDeleted(msg) {
+    if (msg.error) {
+        showToast(`Failed to delete markdown cell: ${msg.error}`, 'error');
+    } else {
+        showToast('Markdown cell deleted', 'success');
+        // The notebook_state message will follow to update the UI
+    }
+}
+
+function handleMarkdownCellMoved(msg) {
+    if (msg.error) {
+        showToast(`Failed to move markdown cell: ${msg.error}`, 'error');
+    }
+    // No success toast - the visual reorder is feedback enough
+    // The notebook_state message will follow to update the UI
+}
+
 function handleUndoResult(msg) {
     if (msg.success) {
         if (msg.description) {
@@ -455,7 +507,7 @@ function handleFileChanged(msg) {
 }
 
 function handleSyncCompleted(msg) {
-    showToast(`Synced to ${msg.ipynb_path}`, 'success');
+    showToast(`Exported to ${msg.ipynb_path}`, 'success');
 }
 
 function handleExecutionAborted(msg) {
@@ -583,21 +635,98 @@ function renderCells() {
         }
     });
 
-    // Add "Add Cell" button at the bottom
+    // Add "Add Cell" buttons at the bottom
     const addCellDiv = document.createElement('div');
     addCellDiv.className = 'add-cell-container';
     addCellDiv.innerHTML = `
-        <button class="btn btn-add-cell" data-action="insert-cell-end" title="Add new cell">
+        <button class="btn btn-add-cell" data-action="insert-cell-end" title="Add new code cell">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
-            Add Cell
+            Add Code Cell
+        </button>
+        <button class="btn btn-add-markdown" data-action="insert-markdown-end" title="Add new markdown cell">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+            Add Markdown Cell
         </button>
     `;
     elements.cellsContainer.appendChild(addCellDiv);
 }
 
 function createCellElement(cell) {
+    // Route to appropriate renderer based on cell type
+    if (cell.cell_type === 'markdown') {
+        return createMarkdownCellElement(cell);
+    } else {
+        return createCodeCellElement(cell);
+    }
+}
+
+function createMarkdownCellElement(cell) {
+    const div = document.createElement('div');
+    div.className = 'cell cell-markdown';
+    div.id = `cell-${cell.id}`;
+    div.dataset.cellId = cell.id;
+    div.dataset.cellType = 'markdown';
+
+    // Render markdown content
+    const contentHtml = typeof marked !== 'undefined'
+        ? marked.parse(cell.content)
+        : escapeHtml(cell.content);
+
+    div.innerHTML = `
+        <div class="markdown-cell-header">
+            <div class="markdown-actions">
+                <button class="btn btn-icon btn-edit-markdown" data-cell-id="${cell.id}" data-action="edit-markdown" title="Edit markdown">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-insert" data-cell-id="${cell.id}" data-action="insert-markdown" title="Insert markdown below">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-copy" data-cell-id="${cell.id}" data-action="copy-markdown" title="Copy markdown">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-move" data-cell-id="${cell.id}" data-action="move-markdown-up" title="Move up">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-move" data-cell-id="${cell.id}" data-action="move-markdown-down" title="Move down">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon btn-delete" data-cell-id="${cell.id}" data-action="delete-markdown" title="Delete">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <div class="markdown-content" id="markdown-preview-${cell.id}">
+            ${contentHtml}
+        </div>
+        <div class="markdown-editor-container" id="markdown-editor-${cell.id}" style="display: none;">
+            <textarea class="markdown-textarea" id="markdown-textarea-${cell.id}">${escapeHtml(cell.content)}</textarea>
+            <div class="markdown-editor-actions">
+                <button class="btn btn-primary" data-cell-id="${cell.id}" data-action="save-markdown">Save</button>
+                <button class="btn" data-cell-id="${cell.id}" data-action="cancel-markdown">Cancel</button>
+            </div>
+        </div>
+    `;
+
+    return div;
+}
+
+function createCodeCellElement(cell) {
     const div = document.createElement('div');
     div.className = `cell ${cell.status}`;
     div.id = `cell-${cell.id}`;
@@ -622,7 +751,7 @@ function createCellElement(cell) {
     div.innerHTML = `
         <div class="cell-header">
             <div class="cell-info">
-                <span class="cell-name">${cell.name}</span>
+                <span class="cell-name">${cell.display_name}</span>
                 <span class="cell-type">→ ${cell.return_type}</span>
                 ${depsHtml}
             </div>
@@ -1178,6 +1307,114 @@ function moveCellDown(cellId) {
     send({ type: 'move_cell', cell_id: cellId, direction: 'down' });
 }
 
+// =====================================
+// Markdown Cell Operations
+// =====================================
+
+function editMarkdownCell(cellId) {
+    const preview = document.getElementById(`markdown-preview-${cellId}`);
+    const editor = document.getElementById(`markdown-editor-${cellId}`);
+
+    if (preview && editor) {
+        preview.style.display = 'none';
+        editor.style.display = 'block';
+
+        // Focus the textarea
+        const textarea = document.getElementById(`markdown-textarea-${cellId}`);
+        if (textarea) {
+            textarea.focus();
+        }
+    }
+}
+
+function saveMarkdownCell(cellId) {
+    const textarea = document.getElementById(`markdown-textarea-${cellId}`);
+    if (!textarea) return;
+
+    const newContent = textarea.value;
+    send({
+        type: 'edit_markdown_cell',
+        cell_id: cellId,
+        new_content: newContent
+    });
+
+    // Switch back to preview mode
+    cancelMarkdownEdit(cellId);
+}
+
+function cancelMarkdownEdit(cellId) {
+    const preview = document.getElementById(`markdown-preview-${cellId}`);
+    const editor = document.getElementById(`markdown-editor-${cellId}`);
+    const textarea = document.getElementById(`markdown-textarea-${cellId}`);
+
+    if (preview && editor) {
+        // Restore original content
+        const cell = state.cells.get(cellId);
+        if (cell && textarea) {
+            textarea.value = cell.content;
+        }
+
+        preview.style.display = 'block';
+        editor.style.display = 'none';
+    }
+}
+
+function confirmDeleteMarkdownCell(cellId) {
+    showConfirmDialog({
+        title: 'Delete Markdown Cell',
+        message: 'Are you sure you want to delete this markdown cell? This cannot be undone.',
+        confirmText: 'Delete',
+        onConfirm: () => deleteMarkdownCell(cellId)
+    });
+}
+
+function deleteMarkdownCell(cellId) {
+    send({ type: 'delete_markdown_cell', cell_id: cellId });
+}
+
+function moveMarkdownCellUp(cellId) {
+    send({ type: 'move_markdown_cell', cell_id: cellId, direction: 'up' });
+}
+
+function moveMarkdownCellDown(cellId) {
+    send({ type: 'move_markdown_cell', cell_id: cellId, direction: 'down' });
+}
+
+function insertMarkdownCellAfter(cellId) {
+    // Insert a new markdown cell after the specified cell
+    send({
+        type: 'insert_markdown_cell',
+        content: '# New Markdown Cell\n\nEdit this content...',
+        after_cell_id: cellId
+    });
+}
+
+function copyMarkdownCell(cellId) {
+    // Get the cell content and create a duplicate
+    const cell = state.cells.get(cellId);
+    if (!cell || cell.cell_type !== 'markdown') return;
+
+    // Send request to insert a copy
+    send({
+        type: 'insert_markdown_cell',
+        content: cell.content,
+        after_cell_id: cellId
+    });
+}
+
+function insertMarkdownCellAtEnd() {
+    // Insert a new markdown cell at the end (after the last cell)
+    const lastCellId = state.sourceOrder.length > 0
+        ? state.sourceOrder[state.sourceOrder.length - 1]
+        : null;
+
+    send({
+        type: 'insert_markdown_cell',
+        content: '# New Markdown Cell\n\nEdit this content...',
+        after_cell_id: lastCellId
+    });
+}
+
 function undo() {
     if (state.canUndo) {
         send({ type: 'undo' });
@@ -1682,7 +1919,7 @@ document.addEventListener('click', (e) => {
     const action = target.dataset.action;
     const cellId = parseInt(target.dataset.cellId, 10);
 
-    if (isNaN(cellId) && action !== 'interrupt' && action !== 'insert-cell-end') return;
+    if (isNaN(cellId) && action !== 'interrupt' && action !== 'insert-cell-end' && action !== 'insert-markdown-end') return;
 
     switch (action) {
         case 'run-cell':
@@ -1714,6 +1951,33 @@ document.addEventListener('click', (e) => {
             break;
         case 'history-next':
             historyNext(cellId);
+            break;
+        case 'edit-markdown':
+            editMarkdownCell(cellId);
+            break;
+        case 'save-markdown':
+            saveMarkdownCell(cellId);
+            break;
+        case 'cancel-markdown':
+            cancelMarkdownEdit(cellId);
+            break;
+        case 'delete-markdown':
+            confirmDeleteMarkdownCell(cellId);
+            break;
+        case 'move-markdown-up':
+            moveMarkdownCellUp(cellId);
+            break;
+        case 'move-markdown-down':
+            moveMarkdownCellDown(cellId);
+            break;
+        case 'insert-markdown':
+            insertMarkdownCellAfter(cellId);
+            break;
+        case 'copy-markdown':
+            copyMarkdownCell(cellId);
+            break;
+        case 'insert-markdown-end':
+            insertMarkdownCellAtEnd();
             break;
     }
 });

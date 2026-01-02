@@ -19,9 +19,21 @@ Venus lets you write Rust notebooks as regular `.rs` files with full IDE support
 - **Reactive execution** - Cells automatically re-run when dependencies change
 - **Fast compilation** - Cranelift JIT backend for sub-second feedback
 - **Hot reload** - Edit code and see results instantly without losing state
+- **Markdown cells** - Full markdown support with syntax highlighting, images, and links
 - **Interactive widgets** - Sliders, text inputs, dropdowns, and checkboxes
 - **Rich output** - Render HTML, images, tables, and custom formats
 - **Jupyter export** - Generate `.ipynb` files for GitHub preview
+
+### Markdown Support
+
+Venus supports rich markdown cells with full GitHub Flavored Markdown syntax:
+
+![Markdown Features](docs/images/screenshot2.png)
+
+- **Text formatting** - Bold, italic, code blocks with syntax highlighting
+- **Links and images** - External URLs and embedded images
+- **Code blocks** - Multi-language syntax highlighting
+- **Lists and tables** - Organized documentation
 
 ## Quick Start
 

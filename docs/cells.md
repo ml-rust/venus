@@ -35,11 +35,11 @@ When `config` changes, `doubled` automatically re-runs.
 Parameters must match the return type of the dependency:
 
 | Dependency returns | Parameter type |
-|-------------------|----------------|
-| `i32` | `&i32` |
-| `String` | `&String` |
-| `Vec<T>` | `&Vec<T>` |
-| `CustomType` | `&CustomType` |
+| ------------------ | -------------- |
+| `i32`              | `&i32`         |
+| `String`           | `&String`      |
+| `Vec<T>`           | `&Vec<T>`      |
+| `CustomType`       | `&CustomType`  |
 
 ## Doc Comments
 
@@ -57,6 +57,61 @@ pub fn config() -> Config {
 ```
 
 Markdown formatting is supported in the web UI.
+
+## Markdown Cells
+
+Venus supports dedicated markdown cells using Rust doc comments (`//!` for module-level or `///` for item-level):
+
+````rust
+//! # Simple Venus Notebook
+//!
+//! A minimal notebook for testing the frontend.
+//!
+//! ## Markdown Features Demo
+//!
+//! This demonstrates **bold text**, *italic text*, and ***bold italic***.
+//!
+//! Inline code: `#[derive(Serialize, Deserialize)]` and `let x = 42;`
+//!
+//! Code block:
+//! ```rust
+//! fn example() {
+//!     println!("Hello, Venus!");
+//! }
+//! ```
+//!
+//! Links: [Rust Language](https://www.rust-lang.org/)
+//!
+//! Images: ![Rust Logo](https://example.com/logo.png)
+````
+
+### Supported Markdown Features
+
+![Markdown Rendering](images/screenshot2.png)
+
+Venus supports full GitHub Flavored Markdown (GFM):
+
+- **Text formatting** - Bold (`**bold**`), italic (`*italic*`), and combined (`***both***`)
+- **Inline code** - Backticks for `inline code` with syntax highlighting
+- **Code blocks** - Fenced code blocks with language-specific syntax highlighting
+- **Links** - External and internal links: `[Text](https://example.com)`
+- **Images** - Embedded images: `![Alt](path/to/image.png)`
+- **Lists** - Ordered and unordered lists
+- **Tables** - GitHub-style tables
+- **Blockquotes** - Quote blocks with `>`
+- **Headers** - H1-H6 headers with `#` syntax
+
+### Editing Markdown Cells
+
+In the web UI, markdown cells can be:
+
+- **Edited** - Click the edit button to modify content
+- **Inserted** - Add new markdown cells anywhere in the notebook
+- **Copied** - Duplicate markdown cells
+- **Moved** - Reorder cells with up/down buttons
+- **Deleted** - Remove unwanted cells
+
+All changes are immediately saved to the `.rs` source file.
 
 ## Custom Types
 

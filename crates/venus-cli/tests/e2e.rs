@@ -312,7 +312,9 @@ fn test_sync_generates_valid_json() {
     );
 
     // Verify cells array
-    let cells = notebook_json["cells"].as_array().expect("cells should be array");
+    let cells = notebook_json["cells"]
+        .as_array()
+        .expect("cells should be array");
     assert!(!cells.is_empty(), "Should have at least one cell");
 }
 
@@ -331,13 +333,12 @@ fn test_sync_includes_cells() {
     let notebook_json: serde_json::Value =
         serde_json::from_str(&content).expect("ipynb should be valid JSON");
 
-    let cells = notebook_json["cells"].as_array().expect("cells should be array");
+    let cells = notebook_json["cells"]
+        .as_array()
+        .expect("cells should be array");
 
     // Find code cells (should have our function definitions)
-    let code_cells: Vec<_> = cells
-        .iter()
-        .filter(|c| c["cell_type"] == "code")
-        .collect();
+    let code_cells: Vec<_> = cells.iter().filter(|c| c["cell_type"] == "code").collect();
 
     // Should have at least 3 code cells (base, doubled, plus_ten)
     assert!(
@@ -505,10 +506,7 @@ fn test_export_creates_html() {
         html_content.contains("Venus Notebook"),
         "Should have Venus title"
     );
-    assert!(
-        html_content.contains("base"),
-        "Should include base cell"
-    );
+    assert!(html_content.contains("base"), "Should include base cell");
     assert!(
         html_content.contains("doubled"),
         "Should include doubled cell"
@@ -533,10 +531,7 @@ fn test_export_includes_outputs() {
         .output()
         .expect("Failed to execute command");
 
-    assert!(
-        output.status.success(),
-        "venus export should succeed"
-    );
+    assert!(output.status.success(), "venus export should succeed");
 
     let html_content = std::fs::read_to_string(&html_path).expect("Failed to read HTML file");
 

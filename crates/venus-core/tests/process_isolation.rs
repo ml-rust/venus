@@ -31,7 +31,8 @@ fn test_infinite_loop_can_be_killed() {
 
     // Parse cells
     let mut parser = CellParser::new();
-    let cells = parser.parse_file(&notebook_path).unwrap();
+    let parse_result = parser.parse_file(&notebook_path).unwrap();
+    let cells = parse_result.code_cells;
     assert_eq!(cells.len(), 1, "Expected 1 cell");
 
     let cell = &cells[0];
@@ -122,7 +123,8 @@ fn test_normal_execution_with_process_isolation() {
 
     // Parse cells
     let mut parser = CellParser::new();
-    let cells = parser.parse_file(&notebook_path).unwrap();
+    let parse_result = parser.parse_file(&notebook_path).unwrap();
+    let cells = parse_result.code_cells;
     assert_eq!(cells.len(), 1, "Expected 1 cell");
 
     let cell = &cells[0];

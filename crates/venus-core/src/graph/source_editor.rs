@@ -200,6 +200,394 @@ impl SourceEditor {
         Ok(())
     }
 
+    /// Rename a cell's display name by updating its doc comment.
+    ///
+    /// Updates or adds a `# Display Name` heading to the cell's doc comment.
+    pub fn rename_cell(&mut self, cell_name: &str, new_display_name: &str) -> Result<()> {
+        // Parse the file to find the cell
+        let file: File = syn::parse_str(&self.content)
+            .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
+
+        // Find the cell
+        for item in &file.items {
+            if let syn::Item::Fn(func) = item {
+                if Self::has_cell_attribute(&func.attrs) {
+                    let name = func.sig.ident.to_string();
+                    if name == cell_name {
+                        // Extract existing doc comments (excluding # heading lines)
+                        let mut doc_lines: Vec<String> = Vec::new();
+
+                        for attr in &func.attrs {
+                            if attr.path().is_ident("doc")
+                                && let syn::Meta::NameValue(nv) = &attr.meta
+                                && let syn::Expr::Lit(syn::ExprLit {
+                                    lit: syn::Lit::Str(s),
+                                    ..
+                                }) = &nv.value
+                            {
+                                let line = s.value();
+                                let trimmed = line.trim_start();
+
+                                // Skip existing # heading (we'll add new one)
+                                if trimmed.starts_with('#') {
+                                    continue;
+                                }
+
+                                doc_lines.push(line);
+                            }
+                        }
+
+                        // Build new doc comment with display name heading
+                        let mut new_doc_lines = vec![format!("# {}", new_display_name)];
+                        if !doc_lines.is_empty() {
+                            // Add blank line between heading and description
+                            new_doc_lines.push(String::new());
+                            new_doc_lines.extend(doc_lines);
+                        }
+
+                        // Find the span for doc comments and attributes
+                        let doc_start_line = if !func.attrs.is_empty() {
+                            func.attrs
+                                .iter()
+                                .filter(|a| a.path().is_ident("doc"))
+                                .map(|a| a.span().start().line)
+                                .min()
+                                .unwrap_or(func.attrs[0].span().start().line)
+                        } else {
+                            func.span().start().line
+                        };
+
+                        // Find the function declaration line (pub fn ...)
+                        let fn_start_line = func.sig.fn_token.span.start().line;
+
+                        // Reconstruct the cell with new doc comments
+                        let lines: Vec<&str> = self.content.lines().collect();
+
+                        // Get the indentation of the original doc comments or function
+                        let indent = if !func.attrs.is_empty() {
+                            Self::get_line_indent(&lines, doc_start_line)
+                        } else {
+                            Self::get_line_indent(&lines, fn_start_line)
+                        };
+
+                        // Build new doc comment block
+                        let new_doc_comment = new_doc_lines
+                            .iter()
+                            .map(|line| format!("{}/// {}", indent, line))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        // Find where to replace
+                        let replace_start = self.line_start_offset(doc_start_line, &lines);
+                        let replace_end = self.line_start_offset(fn_start_line, &lines);
+
+                        // Build new content
+                        let mut new_content = String::new();
+                        new_content.push_str(&self.content[..replace_start]);
+                        new_content.push_str(&new_doc_comment);
+                        new_content.push('\n');
+
+                        // Add the #[venus::cell] attribute if it's not a doc comment
+                        let mut added_cell_attr = false;
+                        for attr in &func.attrs {
+                            if !attr.path().is_ident("doc") {
+                                if !added_cell_attr {
+                                    new_content.push_str(&format!("{}#[venus::cell]\n", indent));
+                                    added_cell_attr = true;
+                                }
+                            }
+                        }
+
+                        if !added_cell_attr {
+                            new_content.push_str(&format!("{}#[venus::cell]\n", indent));
+                        }
+
+                        new_content.push_str(&self.content[replace_end..]);
+
+                        self.content = new_content;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+    }
+
+    /// Insert a markdown cell at a specific line position.
+    ///
+    /// If `after_line` is None, inserts at the beginning of the file.
+    /// Content should be plain markdown text (without `///` prefix).
+    pub fn insert_markdown_cell(&mut self, content: &str, after_line: Option<usize>) -> Result<()> {
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        // Format content as regular comment block (//)
+        let markdown_block = content
+            .lines()
+            .map(|line| format!("// {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Determine insertion point
+        let insert_offset = if let Some(line_num) = after_line {
+            if line_num > lines.len() {
+                self.content.len()
+            } else {
+                // Find the end of the function/block at this line
+                // We need to skip past the entire function body to insert after it
+                self.find_block_end(line_num, &lines)
+            }
+        } else {
+            0 // Insert at beginning
+        };
+
+        // Insert markdown block with appropriate spacing
+        let insert_text = if insert_offset == 0 {
+            format!("{}\n\n", markdown_block)
+        } else {
+            format!("\n\n{}\n", markdown_block)
+        };
+
+        self.content.insert_str(insert_offset, &insert_text);
+
+        Ok(())
+    }
+
+    /// Find the byte offset after the closing brace of a block starting at the given line.
+    fn find_block_end(&self, start_line: usize, lines: &[&str]) -> usize {
+        if start_line == 0 || start_line > lines.len() {
+            return self.content.len();
+        }
+
+        let mut brace_depth = 0;
+        let mut found_opening = false;
+        let mut offset = 0;
+
+        for (i, line) in lines.iter().enumerate() {
+            let line_num = i + 1;
+
+            // Calculate offset for this line
+            if line_num < start_line {
+                offset += line.len() + 1; // +1 for newline
+                continue;
+            }
+
+            // Count braces
+            for ch in line.chars() {
+                offset += ch.len_utf8();
+                match ch {
+                    '{' => {
+                        brace_depth += 1;
+                        found_opening = true;
+                    }
+                    '}' => {
+                        brace_depth -= 1;
+                        // If we're back to 0 and we found an opening brace, we're done
+                        if found_opening && brace_depth == 0 {
+                            offset += 1; // Include the newline after closing brace
+                            return offset.min(self.content.len());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            offset += 1; // newline
+        }
+
+        // If we didn't find a complete block, return end of content
+        self.content.len()
+    }
+
+    /// Edit an existing markdown cell by line range.
+    ///
+    /// Replaces the comment block at the given line range with new content.
+    /// If `is_module_doc` is true, uses `//!` syntax; otherwise uses `///`.
+    pub fn edit_markdown_cell(&mut self, start_line: usize, end_line: usize, new_content: &str, is_module_doc: bool) -> Result<()> {
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+            return Err(Error::InvalidOperation(format!(
+                "Invalid line range: {}-{}",
+                start_line, end_line
+            )));
+        }
+
+        // Format new content as comment block (either //! or ///)
+        let comment_prefix = if is_module_doc { "//!" } else { "///" };
+        let markdown_block = new_content
+            .lines()
+            .map(|line| format!("{} {}", comment_prefix, line))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Calculate byte offsets
+        let start_offset = self.line_start_offset(start_line, &lines);
+        let end_offset = self.line_to_byte_offset(end_line, &lines);
+
+        // Replace the old block with new content
+        // Note: end_offset already points past the newline of end_line
+        // and markdown_block has internal newlines but no trailing newline
+        let needs_newline = end_offset < self.content.len();
+        self.content = if needs_newline {
+            format!(
+                "{}{}\n{}",
+                &self.content[..start_offset],
+                markdown_block,
+                &self.content[end_offset..]
+            )
+        } else {
+            // Last line of file - no trailing newline needed
+            format!(
+                "{}{}",
+                &self.content[..start_offset],
+                markdown_block
+            )
+        };
+
+        eprintln!("  needs_newline={}", needs_newline);
+
+        Ok(())
+    }
+
+    /// Delete a markdown cell by line range.
+    pub fn delete_markdown_cell(&mut self, start_line: usize, end_line: usize) -> Result<()> {
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+            return Err(Error::InvalidOperation(format!(
+                "Invalid line range: {}-{}",
+                start_line, end_line
+            )));
+        }
+
+        // Calculate byte offsets
+        let start_offset = self.line_start_offset(start_line, &lines);
+        let end_offset = self.line_to_byte_offset(end_line, &lines);
+
+        // Remove the markdown block
+        self.content = format!(
+            "{}{}",
+            &self.content[..start_offset],
+            &self.content[end_offset..]
+        );
+
+        // Clean up extra blank lines
+        self.cleanup_blank_lines();
+
+        Ok(())
+    }
+
+    /// Move a markdown cell up or down.
+    ///
+    /// Swaps the markdown block with the adjacent one.
+    pub fn move_markdown_cell(
+        &mut self,
+        start_line: usize,
+        end_line: usize,
+        direction: MoveDirection,
+    ) -> Result<()> {
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+            return Err(Error::InvalidOperation(format!(
+                "Invalid line range: {}-{}",
+                start_line, end_line
+            )));
+        }
+
+        // Extract the markdown block
+        let start_offset = self.line_start_offset(start_line, &lines);
+        let end_offset = self.line_to_byte_offset(end_line, &lines);
+        let markdown_block = self.content[start_offset..end_offset].to_string();
+
+        // Find the adjacent block to swap with
+        let (swap_start_line, swap_end_line) = match direction {
+            MoveDirection::Up => {
+                // Find the previous block (scan backwards)
+                if start_line == 1 {
+                    return Err(Error::InvalidOperation("Cannot move first block up".to_string()));
+                }
+
+                // Simple heuristic: find previous non-empty line group
+                let mut search_line = start_line - 1;
+                while search_line > 0 && lines[search_line - 1].trim().is_empty() {
+                    search_line -= 1;
+                }
+
+                if search_line == 0 {
+                    return Err(Error::InvalidOperation("No block found above".to_string()));
+                }
+
+                // Find the start of this block
+                let mut block_start = search_line;
+                while block_start > 1 && !lines[block_start - 2].trim().is_empty() {
+                    block_start -= 1;
+                }
+
+                (block_start, search_line)
+            }
+            MoveDirection::Down => {
+                // Find the next block (scan forwards)
+                if end_line >= lines.len() {
+                    return Err(Error::InvalidOperation("Cannot move last block down".to_string()));
+                }
+
+                // Skip blank lines
+                let mut search_line = end_line + 1;
+                while search_line <= lines.len() && lines[search_line - 1].trim().is_empty() {
+                    search_line += 1;
+                }
+
+                if search_line > lines.len() {
+                    return Err(Error::InvalidOperation("No block found below".to_string()));
+                }
+
+                // Find the end of this block
+                let block_start = search_line;
+                let mut block_end = search_line;
+                while block_end < lines.len() && !lines[block_end].trim().is_empty() {
+                    block_end += 1;
+                }
+
+                (block_start, block_end)
+            }
+        };
+
+        // Extract the swap block
+        let swap_start_offset = self.line_start_offset(swap_start_line, &lines);
+        let swap_end_offset = self.line_to_byte_offset(swap_end_line, &lines);
+        let swap_block = self.content[swap_start_offset..swap_end_offset].to_string();
+
+        // Perform the swap based on direction
+        match direction {
+            MoveDirection::Up => {
+                // Swap block goes after markdown block
+                self.content = format!(
+                    "{}{}{}{}{}",
+                    &self.content[..swap_start_offset],
+                    &markdown_block,
+                    &self.content[swap_end_offset..start_offset],
+                    &swap_block,
+                    &self.content[end_offset..]
+                );
+            }
+            MoveDirection::Down => {
+                // Markdown block goes after swap block
+                self.content = format!(
+                    "{}{}{}{}{}",
+                    &self.content[..start_offset],
+                    &swap_block,
+                    &self.content[end_offset..swap_start_offset],
+                    &markdown_block,
+                    &self.content[swap_end_offset..]
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Save the modified content back to the file.
     pub fn save(&self) -> Result<()> {
         fs::write(&self.path, &self.content)?;
@@ -328,6 +716,17 @@ impl SourceEditor {
         }
 
         offset.min(self.content.len())
+    }
+
+    /// Get the indentation (leading whitespace) of a line (1-indexed).
+    fn get_line_indent<'a>(lines: &'a [&str], line: usize) -> &'a str {
+        if line == 0 || line > lines.len() {
+            return "";
+        }
+
+        let line_content = lines[line - 1];
+        let trimmed = line_content.trim_start();
+        &line_content[..line_content.len() - trimmed.len()]
     }
 
     /// Remove excessive blank lines (more than 2 consecutive).

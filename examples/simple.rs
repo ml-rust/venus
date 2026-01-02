@@ -2,53 +2,26 @@
 //!
 //! A minimal notebook for testing the frontend.
 //!
-//! Note: rkyv serialization is automatically included by Venus universe.
-//! Use `#[derive(Serialize, Deserialize)]` and Venus will transform to rkyv.
+//! ## Markdown Features Demo
+//!
+//! This demonstrates **bold text**, *italic text*, and ***bold italic***.
+//!
+//! Inline code: `#[derive(Serialize, Deserialize)]` and `let x = 42;`
+//!
+//! Code block:
+//! ```rust
+//! fn example() {
+//!     println!("Hello, Venus!");
+//! }
+//! ```
+//!
+//! Links: [Rust Language](https://www.rust-lang.org/) and [Venus on GitHub](https://github.com/ml-rust/venus)
+//!
+//! Images: ![Rust Logo](https://www.rust-lang.org/logos/rust-logo-256x256.png)
 
-#![allow(clippy::ptr_arg)]
+use serde::{Deserialize, Serialize};
 
-/// # Configuration
-///
-/// Basic configuration cell.
-#[venus::cell]
-pub fn config() -> Config {
-    Config {
-        name: "Venus Test".to_string(),
-        count: 5,
-    }
-}
-
-
-/// # Numbers
-///
-/// Generate a sequence of squared numbers.
-#[venus::cell]
-pub fn numbers(config: &Config) -> Vec<i32> {
-    (1..=config.count).map(|i| i * i).collect()
-}
-
-/// # Sum
-///
-/// Calculate the sum of all numbers.
-#[venus::cell]
-pub fn sum(numbers: &Vec<i32>) -> i32 {
-    numbers.iter().sum()
-}
-
-/// # Report
-///
-/// Generate a final report combining all results.
-#[venus::cell]
-pub fn report(config: &Config, numbers: &Vec<i32>, sum: &i32) -> Report {
-    Report {
-        title: config.name.clone(),
-        values: numbers.clone(),
-        total: *sum,
-    }
-}
-
-
-// Types
+/// Types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub name: String,
@@ -62,18 +35,44 @@ pub struct Report {
     pub total: i32,
 }
 
-fn main() {
-    println!("=== Simple Venus Notebook ===\n");
-
-    let cfg = config();
-    println!("Config: {:?}", cfg);
-
-    let nums = numbers(&cfg);
-    println!("Numbers: {:?}", nums);
-
-    let total = sum(&nums);
-    println!("Sum: {}", total);
-
-    let rpt = report(&cfg, &nums, &total);
-    println!("Report: {:?}", rpt);
+/// Configuration
+#[venus::cell]
+pub fn config() -> Config {
+    Config {
+        name: "Simple".to_string(),
+        count: 15,
+    }
 }
+
+// # New Markdown Cell
+// 
+// Edit this content...
+
+/// Generate numbers
+#[venus::cell]
+pub fn numbers(config: &Config) -> Vec<i32> {
+    (1..=config.count).collect()
+}
+
+
+/// Calculate total
+#[venus::cell]
+pub fn total(numbers: &Vec<i32>) -> i32 {
+    numbers.iter().sum()
+}
+
+
+/// Generate report
+#[venus::cell]
+pub fn report(config: &Config, numbers: &Vec<i32>, total: &i32) -> Report {
+    Report {
+        title: format!("{} Report", config.name),
+        values: numbers.clone(),
+        total: *total,
+    }
+}
+
+
+// # New Markdown Cell
+// 
+// Edit this content...

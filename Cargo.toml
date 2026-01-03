@@ -67,6 +67,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 libc = "0.2.178"
 which = "8.0.0"
+dirs = "6.0"
 
 # Parallelism
 rayon = "1.10"

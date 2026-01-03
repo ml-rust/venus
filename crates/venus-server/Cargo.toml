@@ -46,7 +46,7 @@ libc.workspace = true
 # rust-analyzer download
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 flate2 = "1.0"
-dirs = "5.0"
+dirs.workspace = true
 
 # Embedded frontend (optional)
 rust-embed = { version = "8.5", optional = true }

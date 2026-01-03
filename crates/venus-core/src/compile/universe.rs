@@ -401,6 +401,10 @@ impl UniverseBuilder {
             }
         }
 
+        // Add empty [workspace] to make this a standalone workspace
+        // This prevents it from being pulled into parent workspaces
+        toml.push_str("\n[workspace]\n");
+
         toml
     }
 

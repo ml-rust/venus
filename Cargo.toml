@@ -41,7 +41,6 @@ petgraph = "0.8.3"
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.148"
-bincode = "2.0.0-rc.3"  # Last stable 2.x release (3.0.0 is a protest release)
 rkyv = "0.8.12"  # default features include bytecheck for validation
 
 # Incremental computation

@@ -2,22 +2,21 @@
 //!
 //! ## Serialization Architecture
 //!
-//! Venus uses a two-layer serialization strategy:
+//! Venus uses rkyv for all serialization:
 //!
 //! 1. **Cell data** (stored in `BoxedOutput.bytes`): Serialized with rkyv for
 //!    zero-copy FFI performance when passing data between cells.
 //!
-//! 2. **BoxedOutput container**: Serialized with bincode for state persistence
+//! 2. **BoxedOutput container**: Also serialized with rkyv for state persistence
 //!    (saving/loading cached outputs to disk).
 //!
-//! This separation allows fast FFI data transfer while maintaining simple
-//! state management.
+//! This unified approach provides consistent zero-copy deserialization throughout.
 
 use std::any::TypeId;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
@@ -36,16 +35,23 @@ pub trait CellOutput: Send + Sync + 'static {
     fn type_name(&self) -> &'static str;
 }
 
-/// Blanket implementation for all bincode-compatible types.
-///
-/// Note: This is used for the `BoxedOutput` container serialization,
-/// not for cell data (which uses rkyv via FFI).
+/// Blanket implementation for all rkyv-compatible types.
 impl<T> CellOutput for T
 where
-    T: Encode + Decode<()> + Send + Sync + 'static,
+    T: for<'a> Serialize<rkyv::rancor::Strategy<
+            rkyv::ser::Serializer<
+                rkyv::util::AlignedVec,
+                rkyv::ser::allocator::ArenaHandle<'a>,
+                rkyv::ser::sharing::Share,
+            >,
+            rkyv::rancor::Error,
+        >> + Send
+        + Sync
+        + 'static,
 {
     fn serialize_output(&self) -> Result<Vec<u8>> {
-        bincode::encode_to_vec(self, bincode::config::standard())
+        rkyv::to_bytes::<rkyv::rancor::Error>(self)
+            .map(|v| v.into_vec())
             .map_err(|e| Error::Serialization(e.to_string()))
     }
 
@@ -65,10 +71,20 @@ where
 }
 
 /// Deserialize a cell output from bytes.
-pub fn deserialize_output<T: Decode<()>>(bytes: &[u8]) -> Result<T> {
-    let (value, _) = bincode::decode_from_slice(bytes, bincode::config::standard())
-        .map_err(|e| Error::Deserialization(e.to_string()))?;
-    Ok(value)
+///
+/// # Safety
+///
+/// Uses unchecked deserialization for performance. Only safe when reading from
+/// trusted sources (our own cache files and worker processes).
+pub fn deserialize_output<T>(bytes: &[u8]) -> Result<T>
+where
+    T: Archive,
+    T::Archived: Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
+{
+    // SAFETY: We trust data from our own cache and IPC.
+    // Using unchecked deserialization avoids CheckBytes trait complexity.
+    unsafe { rkyv::from_bytes_unchecked::<T, rkyv::rancor::Error>(bytes) }
+        .map_err(|e: rkyv::rancor::Error| Error::Deserialization(e.to_string()))
 }
 
 /// Marker trait for outputs that can use zero-copy deserialization.
@@ -79,7 +95,7 @@ pub fn deserialize_output<T: Decode<()>>(bytes: &[u8]) -> Result<T> {
 pub trait ZeroCopyOutput: CellOutput {}
 
 /// A boxed cell output that can be stored generically.
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub struct BoxedOutput {
     /// Serialized bytes
     bytes: Vec<u8>,
@@ -170,7 +186,11 @@ impl BoxedOutput {
     /// Deserialize to a specific type.
     ///
     /// Returns an error if the type hash doesn't match.
-    pub fn deserialize<T: CellOutput + Decode<()>>(&self) -> Result<T> {
+    pub fn deserialize<T>(&self) -> Result<T>
+    where
+        T: CellOutput + Archive,
+        T::Archived: Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
+    {
         // Verify type hash
         // TODO(hash-stability): See type_hash() for hash stability concerns
         let expected_hash = {
@@ -197,7 +217,7 @@ impl BoxedOutput {
 mod tests {
     use super::*;
 
-    #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+    #[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
     struct TestOutput {
         value: i32,
         name: String,

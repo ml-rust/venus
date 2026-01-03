@@ -65,10 +65,11 @@ impl StateManager {
     }
 
     /// Load a cell output.
-    pub fn load<T: super::output::CellOutput + bincode::Decode<()>>(
-        &self,
-        cell_id: CellId,
-    ) -> Result<T> {
+    pub fn load<T>(&self, cell_id: CellId) -> Result<T>
+    where
+        T: super::output::CellOutput + rkyv::Archive,
+        T::Archived: rkyv::Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
+    {
         // Try in-memory cache first
         if let Some(boxed) = self.outputs.get(&cell_id) {
             return boxed.deserialize();
@@ -78,9 +79,8 @@ impl StateManager {
         let path = self.output_path(cell_id);
         if path.exists() {
             let bytes = fs::read(&path)?;
-            let (boxed, _): (BoxedOutput, _) =
-                bincode::decode_from_slice(&bytes, bincode::config::standard())
-                    .map_err(|e| Error::Deserialization(e.to_string()))?;
+            let boxed: BoxedOutput = rkyv::from_bytes::<BoxedOutput, rkyv::rancor::Error>(&bytes)
+                .map_err(|e| Error::Deserialization(e.to_string()))?;
             return boxed.deserialize();
         }
 
@@ -186,7 +186,7 @@ impl StateManager {
                         fs::create_dir_all(parent)?;
                     }
 
-                    let bytes = bincode::encode_to_vec(boxed.as_ref(), bincode::config::standard())
+                    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(boxed.as_ref())
                         .map_err(|e| Error::Serialization(e.to_string()))?;
 
                     // Use atomic write pattern: write to temp file, then rename
@@ -237,11 +237,8 @@ impl StateManager {
                 let cell_id = CellId::new(id);
                 let bytes = fs::read(&path)?;
 
-                match bincode::decode_from_slice::<BoxedOutput, _>(
-                    &bytes,
-                    bincode::config::standard(),
-                ) {
-                    Ok((boxed, _)) => {
+                match rkyv::from_bytes::<BoxedOutput, rkyv::rancor::Error>(&bytes) {
+                    Ok(boxed) => {
                         self.outputs.insert(cell_id, Arc::new(boxed));
                         count += 1;
                     }
@@ -401,10 +398,10 @@ pub struct StateStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bincode::{Decode, Encode};
+    use rkyv::{Archive, Deserialize, Serialize};
     use tempfile::TempDir;
 
-    #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+    #[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
     struct TestOutput {
         value: i32,
     }

@@ -16,7 +16,7 @@ venus-core = { path = "../venus-core", version = "0.1.0-beta.3" }
 venus = { path = "../venus", version = "0.1.0-beta.3" }
 
 # Serialization for IPC
-bincode.workspace = true
+rkyv.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

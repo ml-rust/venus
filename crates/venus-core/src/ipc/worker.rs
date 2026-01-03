@@ -161,7 +161,7 @@ impl WorkerHandle {
         name: String,
     ) -> Result<()> {
         self.send_command(&WorkerCommand::LoadCell {
-            dylib_path,
+            dylib_path: dylib_path.to_string_lossy().to_string(),
             dep_count,
             entry_symbol,
             name,

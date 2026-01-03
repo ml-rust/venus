@@ -1,22 +1,21 @@
 //! IPC protocol messages for Venus worker processes.
 //!
-//! Uses length-prefixed bincode messages over stdin/stdout.
-//! Format: 4-byte length (u32 LE) + bincode-encoded message.
+//! Uses length-prefixed rkyv messages over stdin/stdout.
+//! Format: 4-byte length (u32 LE) + rkyv-encoded message.
 
 use std::io::{Read, Write};
-use std::path::PathBuf;
 
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
 /// Command sent from parent to worker process.
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum WorkerCommand {
     /// Load a compiled cell's dynamic library.
     LoadCell {
         /// Path to the dylib file.
-        dylib_path: PathBuf,
+        dylib_path: String,
         /// Number of dependencies for FFI dispatch.
         dep_count: usize,
         /// Entry point symbol name.
@@ -42,7 +41,7 @@ pub enum WorkerCommand {
 }
 
 /// Response sent from worker to parent process.
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum WorkerResponse {
     /// Cell loaded successfully.
     Loaded,
@@ -75,33 +74,52 @@ pub enum WorkerResponse {
     ShuttingDown,
 }
 
-/// Write a message to a writer using length-prefixed bincode encoding.
-pub fn write_message<W: Write, T: Encode>(writer: &mut W, message: &T) -> Result<()> {
-    let config = bincode::config::standard();
-    let bytes = bincode::encode_to_vec(message, config).map_err(|e| {
-        Error::Serialization(format!("Failed to encode IPC message: {}", e))
-    })?;
+/// Write a message to a writer using length-prefixed rkyv encoding.
+pub fn write_message<W: Write>(
+    writer: &mut W,
+    message: &impl for<'a> Serialize<
+        rkyv::rancor::Strategy<
+            rkyv::ser::Serializer<
+                rkyv::util::AlignedVec,
+                rkyv::ser::allocator::ArenaHandle<'a>,
+                rkyv::ser::sharing::Share,
+            >,
+            rkyv::rancor::Error,
+        >,
+    >,
+) -> Result<()> {
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(message)
+        .map_err(|e| Error::Serialization(format!("Failed to encode IPC message: {}", e)))?;
 
     let len = bytes.len() as u32;
-    writer.write_all(&len.to_le_bytes()).map_err(|e| {
-        Error::Ipc(format!("Failed to write IPC message length: {}", e))
-    })?;
-    writer.write_all(&bytes).map_err(|e| {
-        Error::Ipc(format!("Failed to write IPC message body: {}", e))
-    })?;
-    writer.flush().map_err(|e| {
-        Error::Ipc(format!("Failed to flush IPC stream: {}", e))
-    })?;
+    writer
+        .write_all(&len.to_le_bytes())
+        .map_err(|e| Error::Ipc(format!("Failed to write IPC message length: {}", e)))?;
+    writer
+        .write_all(&bytes)
+        .map_err(|e| Error::Ipc(format!("Failed to write IPC message body: {}", e)))?;
+    writer
+        .flush()
+        .map_err(|e| Error::Ipc(format!("Failed to flush IPC stream: {}", e)))?;
 
     Ok(())
 }
 
-/// Read a message from a reader using length-prefixed bincode encoding.
-pub fn read_message<R: Read, T: Decode<()>>(reader: &mut R) -> Result<T> {
+/// Read a message from a reader using length-prefixed rkyv encoding.
+///
+/// # Safety
+///
+/// Uses unchecked deserialization for performance. Only safe when reading from
+/// trusted sources (our own worker processes or state files).
+pub fn read_message<R: Read, T>(reader: &mut R) -> Result<T>
+where
+    T: Archive,
+    T::Archived: Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
+{
     let mut len_bytes = [0u8; 4];
-    reader.read_exact(&mut len_bytes).map_err(|e| {
-        Error::Ipc(format!("Failed to read IPC message length: {}", e))
-    })?;
+    reader
+        .read_exact(&mut len_bytes)
+        .map_err(|e| Error::Ipc(format!("Failed to read IPC message length: {}", e)))?;
     let len = u32::from_le_bytes(len_bytes) as usize;
 
     // Sanity check: reject absurdly large messages (100MB)
@@ -113,14 +131,14 @@ pub fn read_message<R: Read, T: Decode<()>>(reader: &mut R) -> Result<T> {
     }
 
     let mut bytes = vec![0u8; len];
-    reader.read_exact(&mut bytes).map_err(|e| {
-        Error::Ipc(format!("Failed to read IPC message body: {}", e))
-    })?;
+    reader
+        .read_exact(&mut bytes)
+        .map_err(|e| Error::Ipc(format!("Failed to read IPC message body: {}", e)))?;
 
-    let config = bincode::config::standard();
-    let (message, _) = bincode::decode_from_slice(&bytes, config).map_err(|e| {
-        Error::Serialization(format!("Failed to decode IPC message: {}", e))
-    })?;
+    // SAFETY: We trust data from our own worker processes and state files.
+    // Using unchecked deserialization avoids CheckBytes trait complexity.
+    let message = unsafe { rkyv::from_bytes_unchecked::<T, rkyv::rancor::Error>(&bytes) }
+        .map_err(|e| Error::Serialization(format!("Failed to decode IPC message: {}", e)))?;
 
     Ok(message)
 }
@@ -133,7 +151,7 @@ mod tests {
     #[test]
     fn test_command_roundtrip() {
         let cmd = WorkerCommand::LoadCell {
-            dylib_path: PathBuf::from("/tmp/cell.so"),
+            dylib_path: "/tmp/cell.so".to_string(),
             dep_count: 2,
             entry_symbol: "venus_entry_my_cell".to_string(),
             name: "my_cell".to_string(),
@@ -146,8 +164,13 @@ mod tests {
         let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerCommand::LoadCell { dylib_path, dep_count, entry_symbol, name } => {
-                assert_eq!(dylib_path, PathBuf::from("/tmp/cell.so"));
+            WorkerCommand::LoadCell {
+                dylib_path,
+                dep_count,
+                entry_symbol,
+                name,
+            } => {
+                assert_eq!(dylib_path, "/tmp/cell.so");
                 assert_eq!(dep_count, 2);
                 assert_eq!(entry_symbol, "venus_entry_my_cell");
                 assert_eq!(name, "my_cell");
@@ -200,5 +223,44 @@ mod tests {
             }
             _ => panic!("Wrong command type"),
         }
+    }
+
+    #[test]
+    fn test_empty_execute_command() {
+        // This tests the case that's failing in process_isolation tests
+        let cmd = WorkerCommand::Execute {
+            inputs: vec![],
+            widget_values_json: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &cmd).unwrap();
+        eprintln!("Empty Execute command serializes to {} bytes", buf.len());
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerCommand::Execute { inputs, widget_values_json } => {
+                assert!(inputs.is_empty());
+                assert!(widget_values_json.is_empty());
+            }
+            _ => panic!("Wrong command type"),
+        }
+    }
+
+    #[test]
+    fn test_loaded_response_size() {
+        let response = WorkerResponse::Loaded;
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &response).unwrap();
+        eprintln!("Loaded response serializes to {} bytes total ({} payload)",
+                  buf.len(), buf.len() - 4);
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        matches!(decoded, WorkerResponse::Loaded);
     }
 }

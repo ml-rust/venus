@@ -75,7 +75,12 @@ fn main() {
                 name,
             } => {
                 tracing::info!("Loading cell '{}' from {:?}", name, dylib_path);
-                match load_cell(dylib_path.clone(), dep_count, entry_symbol.clone(), name.clone()) {
+                match load_cell(
+                    dylib_path.clone().into(),
+                    dep_count,
+                    entry_symbol.clone(),
+                    name.clone(),
+                ) {
                     Ok(cell) => {
                         loaded_cell = Some(cell);
                         WorkerResponse::Loaded

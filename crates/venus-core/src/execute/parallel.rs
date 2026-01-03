@@ -127,8 +127,16 @@ impl ParallelExecutor {
     ) -> Result<()> {
         let dep_ids = deps.get(&cell_id).cloned().unwrap_or_default();
 
-        // Single lock acquisition for the entire operation
-        // TODO(perf): Consider RwLock if read-heavy workloads dominate
+        // TODO(parallelism): Current implementation serializes execution within a level
+        // because execute_cell requires &mut self. To enable true parallelism:
+        // 1. Refactor LinearExecutor to separate read-only operations (loading cells, calling FFI)
+        //    from state mutations (storing outputs)
+        // 2. Use RwLock instead of Mutex to allow concurrent reads
+        // 3. Hold only read lock during FFI execution, exclusive lock only for output storage
+        //
+        // For now, we prioritize correctness over parallelism within a level.
+        // Inter-level parallelism is preserved.
+
         let mut inner = self.acquire_lock()?;
 
         // Gather dependency outputs
@@ -147,7 +155,7 @@ impl ParallelExecutor {
             )));
         }
 
-        // Execute and store in one lock scope
+        // Execute and store output atomically to prevent races
         let output = inner.execute_cell(cell_id, &inputs)?;
         inner.state_mut().store_output(cell_id, output);
 

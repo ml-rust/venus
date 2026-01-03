@@ -84,8 +84,8 @@ impl HotReloader {
         // Step 2: Save current output (for potential restoration)
         let saved_output = executor.state().get_output(cell_id);
 
-        // Step 3: Unload the old library
-        let _old_cell = executor.unload_cell(cell_id);
+        // Step 3: Unload the old library but KEEP IT for rollback
+        let old_cell = executor.unload_cell(cell_id);
 
         // Step 4: Recompile the cell
         tracing::info!("Recompiling cell {:?}", cell_id);
@@ -93,7 +93,7 @@ impl HotReloader {
 
         match result {
             CompilationResult::Success(compiled) | CompilationResult::Cached(compiled) => {
-                // Step 5: Load the new library
+                // Step 5: Load the new library (old one will be dropped here)
                 let dep_count = cell_info.dependencies.len();
                 executor.load_cell(compiled.clone(), dep_count)?;
 
@@ -109,8 +109,14 @@ impl HotReloader {
                 Ok(compiled)
             }
             CompilationResult::Failed { cell_id, errors } => {
-                // Compilation failed - try to restore the old state
+                // Compilation failed - restore the old state
                 tracing::error!("Cell {:?} compilation failed: {:?}", cell_id, errors);
+
+                // Restore old library if we had one
+                if let Some(old_loaded_cell) = old_cell {
+                    tracing::info!("Restoring old cell {:?} after compilation failure", cell_id);
+                    executor.restore_cell(old_loaded_cell);
+                }
 
                 // Restore output if we had one
                 if let Some(output) = saved_output {

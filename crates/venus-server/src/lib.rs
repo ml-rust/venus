@@ -38,6 +38,9 @@ pub use routes::{AppState, create_router};
 pub use session::{NotebookSession, SessionHandle};
 pub use watcher::{FileEvent, FileWatcher};
 
+// Re-export LSP cleanup function
+pub use lsp::kill_all_processes as kill_all_lsp_processes;
+
 /// Server configuration.
 #[derive(Debug, Clone)]
 pub struct ServerConfig {

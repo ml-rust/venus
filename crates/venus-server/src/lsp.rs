@@ -17,6 +17,135 @@ use tokio::sync::Mutex;
 
 use crate::rust_analyzer;
 
+lazy_static::lazy_static! {
+    /// Global registry of all running rust-analyzer processes.
+    ///
+    /// Multi-layered cleanup strategy:
+    /// 1. **Linux**: `prctl(PR_SET_PDEATHSIG)` kills child if parent dies (crash, kill -9, etc.)
+    /// 2. **Windows**: Job object kills child when job handle is closed (parent dies)
+    /// 3. **Graceful shutdown**: Ctrl+C handler calls `kill_all_processes()`
+    /// 4. **WebSocket close**: Each LSP session kills its own rust-analyzer on disconnect
+    /// 5. **Fallback**: This registry tracks all PIDs for manual cleanup
+    static ref ANALYZER_PROCESSES: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
+}
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    /// Windows Job Object handle. Child processes assigned to this job
+    /// are automatically terminated when the job handle is closed (i.e., when Venus exits).
+    static ref WINDOWS_JOB: Arc<Mutex<Option<WindowsJobObject>>> = Arc::new(Mutex::new(None));
+}
+
+#[cfg(windows)]
+struct WindowsJobObject {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsJobObject {
+    fn create() -> Result<Self, std::io::Error> {
+        use windows_sys::Win32::System::JobObjects::*;
+        use windows_sys::Win32::Foundation::*;
+
+        unsafe {
+            // Create job object
+            let job_handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job_handle == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Configure job to kill all processes when job handle is closed
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            let result = SetInformationJobObject(
+                job_handle,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+
+            if result == 0 {
+                CloseHandle(job_handle);
+                return Err(std::io::Error::last_os_error());
+            }
+
+            Ok(Self { handle: job_handle })
+        }
+    }
+
+    fn assign_process(&self, process_handle: windows_sys::Win32::Foundation::HANDLE) -> Result<(), std::io::Error> {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+
+        unsafe {
+            if AssignProcessToJobObject(self.handle, process_handle) == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJobObject {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.handle);
+        }
+    }
+}
+
+#[cfg(windows)]
+/// Initialize the Windows job object. Called once on first LSP connection.
+async fn ensure_windows_job() -> Result<(), std::io::Error> {
+    let mut job = WINDOWS_JOB.lock().await;
+    if job.is_none() {
+        *job = Some(WindowsJobObject::create()?);
+        tracing::info!("Created Windows job object for automatic process cleanup");
+    }
+    Ok(())
+}
+
+/// Register a rust-analyzer process for cleanup on shutdown.
+async fn register_process(pid: u32) {
+    let mut processes = ANALYZER_PROCESSES.lock().await;
+    processes.push(pid);
+    tracing::debug!("Registered rust-analyzer process: {}", pid);
+}
+
+/// Unregister a rust-analyzer process.
+async fn unregister_process(pid: u32) {
+    let mut processes = ANALYZER_PROCESSES.lock().await;
+    processes.retain(|&p| p != pid);
+    tracing::debug!("Unregistered rust-analyzer process: {}", pid);
+}
+
+/// Kill all registered rust-analyzer processes.
+/// Called on server shutdown.
+pub async fn kill_all_processes() {
+    let mut processes = ANALYZER_PROCESSES.lock().await;
+
+    for &pid in processes.iter() {
+        tracing::info!("Killing rust-analyzer process: {}", pid);
+
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
+
+        #[cfg(windows)]
+        {
+            use std::process::Command as StdCommand;
+            let _ = StdCommand::new("taskkill")
+                .args(&["/PID", &pid.to_string(), "/F"])
+                .output();
+        }
+    }
+
+    processes.clear();
+    tracing::info!("All rust-analyzer processes terminated");
+}
+
 /// Handle an LSP WebSocket connection.
 pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
@@ -49,13 +178,53 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
 
     tracing::info!("Starting rust-analyzer from: {}", ra_path.display());
 
-    let mut child = match Command::new(&ra_path)
-        .current_dir(&workspace_root)
+    // Build command with process group configuration
+    let mut cmd = Command::new(&ra_path);
+    cmd.current_dir(&workspace_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+
+    // On Linux: Use prctl to kill child when parent dies
+    #[cfg(target_os = "linux")]
     {
+        #[allow(unused_imports)] // CommandExt trait is needed for pre_exec
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                // PR_SET_PDEATHSIG = 1, SIGKILL = 9
+                // This ensures rust-analyzer is killed if Venus crashes/is killed
+                if libc::prctl(1, 9) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+
+    // On other Unix: Create new process group for manual cleanup
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        #[allow(unused_imports)] // CommandExt trait is needed for pre_exec
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                // Create new process group for manual cleanup
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+    }
+
+    // On Windows: Ensure job object exists for automatic cleanup
+    #[cfg(windows)]
+    {
+        if let Err(e) = ensure_windows_job().await {
+            tracing::error!("Failed to create Windows job object: {}", e);
+        }
+    }
+
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
             tracing::error!("Failed to start rust-analyzer: {}", e);
@@ -73,6 +242,25 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
             return;
         }
     };
+
+    // Get process ID and register for cleanup
+    let pid = child.id().expect("Failed to get process ID");
+    register_process(pid).await;
+
+    // On Windows: Assign process to job object for automatic cleanup
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        let job = WINDOWS_JOB.lock().await;
+        if let Some(job_obj) = job.as_ref() {
+            let handle = child.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
+            if let Err(e) = job_obj.assign_process(handle) {
+                tracing::warn!("Failed to assign rust-analyzer to job object: {}", e);
+            } else {
+                tracing::debug!("Assigned rust-analyzer (PID {}) to Windows job object", pid);
+            }
+        }
+    }
 
     let stdin = child.stdin.take().expect("Failed to get stdin");
     let stdout = child.stdout.take().expect("Failed to get stdout");
@@ -190,6 +378,9 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
 
     // Kill rust-analyzer process
     let _ = child.kill().await;
+
+    // Unregister from cleanup list
+    unregister_process(pid).await;
 
     tracing::info!("LSP session ended");
 }

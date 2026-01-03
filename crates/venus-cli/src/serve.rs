@@ -53,7 +53,27 @@ pub async fn execute(notebook_path: &str, port: u16) -> anyhow::Result<()> {
     println!("{}Press Ctrl+C to stop{}", colors::GREEN, colors::RESET);
     println!();
 
-    venus_server::serve(path, config).await?;
+    // Set up Ctrl+C handler
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+        let _ = shutdown_tx.send(()).await;
+    });
+
+    // Run server with graceful shutdown
+    tokio::select! {
+        result = venus_server::serve(path, config) => {
+            result?;
+        }
+        _ = shutdown_rx.recv() => {
+            println!("\n{}Shutting down...{}", colors::YELLOW, colors::RESET);
+            // Kill all rust-analyzer processes
+            venus_server::kill_all_lsp_processes().await;
+        }
+    }
 
     Ok(())
 }

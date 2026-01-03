@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
@@ -17,23 +17,28 @@ use tokio::sync::Mutex;
 
 use crate::rust_analyzer;
 
-lazy_static::lazy_static! {
-    /// Global registry of all running rust-analyzer processes.
-    ///
-    /// Multi-layered cleanup strategy:
-    /// 1. **Linux**: `prctl(PR_SET_PDEATHSIG)` kills child if parent dies (crash, kill -9, etc.)
-    /// 2. **Windows**: Job object kills child when job handle is closed (parent dies)
-    /// 3. **Graceful shutdown**: Ctrl+C handler calls `kill_all_processes()`
-    /// 4. **WebSocket close**: Each LSP session kills its own rust-analyzer on disconnect
-    /// 5. **Fallback**: This registry tracks all PIDs for manual cleanup
-    static ref ANALYZER_PROCESSES: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
+/// Global registry of all running rust-analyzer processes.
+///
+/// Multi-layered cleanup strategy:
+/// 1. **Linux**: `prctl(PR_SET_PDEATHSIG)` kills child if parent dies (crash, kill -9, etc.)
+/// 2. **Windows**: Job object kills child when job handle is closed (parent dies)
+/// 3. **Graceful shutdown**: Ctrl+C handler calls `kill_all_processes()`
+/// 4. **WebSocket close**: Each LSP session kills its own rust-analyzer on disconnect
+/// 5. **Fallback**: This registry tracks all PIDs for manual cleanup
+static ANALYZER_PROCESSES: OnceLock<Arc<Mutex<Vec<u32>>>> = OnceLock::new();
+
+fn get_analyzer_processes() -> &'static Arc<Mutex<Vec<u32>>> {
+    ANALYZER_PROCESSES.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
 }
 
 #[cfg(windows)]
-lazy_static::lazy_static! {
-    /// Windows Job Object handle. Child processes assigned to this job
-    /// are automatically terminated when the job handle is closed (i.e., when Venus exits).
-    static ref WINDOWS_JOB: Arc<Mutex<Option<WindowsJobObject>>> = Arc::new(Mutex::new(None));
+/// Windows Job Object handle. Child processes assigned to this job
+/// are automatically terminated when the job handle is closed (i.e., when Venus exits).
+static WINDOWS_JOB: OnceLock<Arc<Mutex<Option<WindowsJobObject>>>> = OnceLock::new();
+
+#[cfg(windows)]
+fn get_windows_job() -> &'static Arc<Mutex<Option<WindowsJobObject>>> {
+    WINDOWS_JOB.get_or_init(|| Arc::new(Mutex::new(None)))
 }
 
 #[cfg(windows)]
@@ -98,7 +103,7 @@ impl Drop for WindowsJobObject {
 #[cfg(windows)]
 /// Initialize the Windows job object. Called once on first LSP connection.
 async fn ensure_windows_job() -> Result<(), std::io::Error> {
-    let mut job = WINDOWS_JOB.lock().await;
+    let mut job = get_windows_job().lock().await;
     if job.is_none() {
         *job = Some(WindowsJobObject::create()?);
         tracing::info!("Created Windows job object for automatic process cleanup");
@@ -108,14 +113,14 @@ async fn ensure_windows_job() -> Result<(), std::io::Error> {
 
 /// Register a rust-analyzer process for cleanup on shutdown.
 async fn register_process(pid: u32) {
-    let mut processes = ANALYZER_PROCESSES.lock().await;
+    let mut processes = get_analyzer_processes().lock().await;
     processes.push(pid);
     tracing::debug!("Registered rust-analyzer process: {}", pid);
 }
 
 /// Unregister a rust-analyzer process.
 async fn unregister_process(pid: u32) {
-    let mut processes = ANALYZER_PROCESSES.lock().await;
+    let mut processes = get_analyzer_processes().lock().await;
     processes.retain(|&p| p != pid);
     tracing::debug!("Unregistered rust-analyzer process: {}", pid);
 }
@@ -123,7 +128,7 @@ async fn unregister_process(pid: u32) {
 /// Kill all registered rust-analyzer processes.
 /// Called on server shutdown.
 pub async fn kill_all_processes() {
-    let mut processes = ANALYZER_PROCESSES.lock().await;
+    let mut processes = get_analyzer_processes().lock().await;
 
     for &pid in processes.iter() {
         tracing::info!("Killing rust-analyzer process: {}", pid);
@@ -251,7 +256,7 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
     #[cfg(windows)]
     {
         use std::os::windows::io::AsRawHandle;
-        let job = WINDOWS_JOB.lock().await;
+        let job = get_windows_job().lock().await;
         if let Some(job_obj) = job.as_ref() {
             let handle = child.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
             if let Err(e) = job_obj.assign_process(handle) {

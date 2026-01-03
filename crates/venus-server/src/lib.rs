@@ -86,9 +86,9 @@ pub async fn serve(notebook_path: impl AsRef<Path>, config: ServerConfig) -> Ser
     // Create file watcher
     let mut watcher = FileWatcher::new(path)?;
 
-    // Spawn watcher task
+    // Spawn watcher task and store handle for cleanup
     let session_clone = session.clone();
-    tokio::spawn(async move {
+    let watcher_task = tokio::spawn(async move {
         while let Some(event) = watcher.recv().await {
             match event {
                 FileEvent::Modified(_) => {
@@ -121,9 +121,32 @@ pub async fn serve(notebook_path: impl AsRef<Path>, config: ServerConfig) -> Ser
         tracing::info!("Open http://{} in your browser", addr);
     }
 
-    // Start server
+    // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+
+    // Create shutdown signal channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Handle Ctrl+C for graceful shutdown
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            tracing::info!("Received shutdown signal");
+            let _ = shutdown_tx.send(());
+        }
+    });
+
+    // Serve with graceful shutdown
+    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+        let _ = shutdown_rx.await;
+    });
+
+    server.await?;
+
+    // Clean up file watcher task
+    watcher_task.abort();
+    let _ = watcher_task.await;
+
+    tracing::info!("Server shutdown complete");
 
     Ok(())
 }

@@ -367,14 +367,13 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
         }
     });
 
-    // Wait for tasks to complete
-    tokio::select! {
-        _ = ws_to_lsp => {},
-        _ = lsp_to_ws => {},
-    }
+    // Wait for BOTH tasks to complete (not just first one)
+    // This prevents orphaned tasks from continuing to run
+    let _ = tokio::join!(ws_to_lsp, lsp_to_ws);
 
-    // Clean up
+    // Clean up stderr task
     stderr_task.abort();
+    let _ = stderr_task.await;
 
     // Kill rust-analyzer process
     let _ = child.kill().await;

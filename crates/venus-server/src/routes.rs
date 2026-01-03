@@ -220,7 +220,9 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 
+    // Ensure forward task terminates cleanly
     forward_task.abort();
+    let _ = forward_task.await;
 }
 
 /// Send a server message through the WebSocket.

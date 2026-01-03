@@ -19,7 +19,7 @@ use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine, MarkdownCell,
 use venus_core::paths::NotebookDirs;
 
 use crate::error::{ServerError, ServerResult};
-use crate::protocol::{CellOutput, CellState, CellStatus, DependencyEdge, ServerMessage};
+use crate::protocol::{CellOutput, CellState, CellStatus, ServerMessage};
 use crate::undo::{UndoManager, UndoableOperation};
 use venus_core::state::BoxedOutput;
 
@@ -329,37 +329,6 @@ impl NotebookSession {
         }
 
         self.cell_states = new_states;
-    }
-
-    /// Broadcast current graph state.
-    fn broadcast_graph_update(&self) {
-        let edges: Vec<DependencyEdge> = self
-            .cells
-            .iter()
-            .flat_map(|cell| {
-                cell.dependencies.iter().filter_map(|dep| {
-                    self.cells
-                        .iter()
-                        .find(|c| c.name == dep.param_name)
-                        .map(|producer| DependencyEdge {
-                            from: producer.id,
-                            to: cell.id,
-                            param_name: dep.param_name.clone(),
-                        })
-                })
-            })
-            .collect();
-
-        let order = match self.graph.topological_order() {
-            Ok(order) => order,
-            Err(e) => {
-                tracing::error!("Failed to compute topological order: {}", e);
-                Vec::new()
-            }
-        };
-        let levels = self.graph.topological_levels(&order);
-
-        self.broadcast(ServerMessage::GraphUpdated { edges, levels });
     }
 
     /// Get the full notebook state.

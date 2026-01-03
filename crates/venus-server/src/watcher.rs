@@ -100,7 +100,9 @@ impl FileWatcher {
 mod tests {
     use super::*;
     use std::fs;
+    use std::time::Duration;
     use tempfile::TempDir;
+    use tokio::time::sleep;
 
     #[tokio::test]
     async fn test_watcher_creation() {
@@ -110,5 +112,94 @@ mod tests {
 
         let watcher = FileWatcher::new(&notebook);
         assert!(watcher.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_watcher_detects_modification() {
+        let temp = TempDir::new().unwrap();
+        let notebook = temp.path().join("test.rs");
+        fs::write(&notebook, "// initial content").unwrap();
+
+        let mut watcher = FileWatcher::new(&notebook).unwrap();
+
+        // Give the watcher time to initialize
+        sleep(Duration::from_millis(100)).await;
+
+        // Modify the file
+        fs::write(&notebook, "// modified content").unwrap();
+
+        // Wait for debounce + processing
+        let timeout = tokio::time::timeout(Duration::from_secs(2), watcher.recv()).await;
+
+        assert!(timeout.is_ok(), "Watcher did not detect modification");
+        let event = timeout.unwrap();
+
+        match event {
+            Some(FileEvent::Modified(path)) => {
+                assert_eq!(path, notebook);
+            }
+            Some(other) => panic!("Expected Modified event, got {:?}", other),
+            None => panic!("Received None from watcher"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_watcher_ignores_non_rust_files() {
+        let temp = TempDir::new().unwrap();
+        let notebook = temp.path().join("test.rs");
+        fs::write(&notebook, "// test").unwrap();
+
+        let mut watcher = FileWatcher::new(&notebook).unwrap();
+
+        // Give the watcher time to initialize
+        sleep(Duration::from_millis(100)).await;
+
+        // Create a non-Rust file (should be ignored)
+        let other_file = temp.path().join("test.txt");
+        fs::write(&other_file, "text content").unwrap();
+
+        // Wait a bit to ensure no event is generated
+        let timeout =
+            tokio::time::timeout(Duration::from_millis(500), watcher.recv()).await;
+
+        // Should timeout because .txt files are filtered out
+        assert!(timeout.is_err(), "Watcher should ignore non-.rs files");
+    }
+
+    #[tokio::test]
+    async fn test_watcher_directory_mode() {
+        let temp = TempDir::new().unwrap();
+        let notebook = temp.path().join("test.rs");
+        fs::write(&notebook, "// test").unwrap();
+
+        // Watch the directory instead of specific file
+        let mut watcher = FileWatcher::new(temp.path()).unwrap();
+
+        // Give the watcher time to initialize
+        sleep(Duration::from_millis(100)).await;
+
+        // Modify the file
+        fs::write(&notebook, "// modified").unwrap();
+
+        // Should still detect changes
+        let timeout = tokio::time::timeout(Duration::from_secs(2), watcher.recv()).await;
+
+        assert!(
+            timeout.is_ok(),
+            "Directory watcher did not detect file modification"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_file_event_types() {
+        // Test FileEvent variants
+        let event = FileEvent::Modified(PathBuf::from("/test.rs"));
+        assert!(matches!(event, FileEvent::Modified(_)));
+
+        let event = FileEvent::Created(PathBuf::from("/test.rs"));
+        assert!(matches!(event, FileEvent::Created(_)));
+
+        let event = FileEvent::Removed(PathBuf::from("/test.rs"));
+        assert!(matches!(event, FileEvent::Removed(_)));
     }
 }

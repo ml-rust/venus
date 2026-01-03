@@ -199,13 +199,23 @@ impl CachePersistence {
             .map_err(|e| CacheError::Serialize(e.to_string()))?;
 
         // Write to temp file first for atomic operation
-        let temp_path = path.with_extension("tmp");
+        // Use PID to make temp file unique and avoid race conditions
+        let pid = std::process::id();
+        let temp_path = path.with_extension(&format!("tmp.{}", pid));
+
         let mut file = fs::File::create(&temp_path)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
 
         // Atomic rename
-        fs::rename(&temp_path, path)?;
+        let rename_result = fs::rename(&temp_path, path);
+
+        // Clean up temp file if rename failed
+        if rename_result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+
+        rename_result?;
 
         tracing::debug!(
             "Saved cache snapshot: {} cells, {} bytes",

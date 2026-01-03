@@ -20,6 +20,32 @@ use super::ffi::{
 };
 use super::loaded_cell::LoadedCell;
 
+/// RAII guard for FFI-allocated memory.
+/// Ensures libc::free is called even if panic occurs during processing.
+struct FfiMemoryGuard {
+    ptr: *mut u8,
+}
+
+impl FfiMemoryGuard {
+    unsafe fn new(ptr: *mut u8) -> Self {
+        Self { ptr }
+    }
+
+    fn as_slice(&self, len: usize) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr, len) }
+    }
+}
+
+impl Drop for FfiMemoryGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                libc::free(self.ptr as *mut libc::c_void);
+            }
+        }
+    }
+}
+
 /// Linear executor that runs cells sequentially in dependency order.
 pub struct LinearExecutor {
     /// Loaded cell libraries
@@ -86,6 +112,11 @@ impl LinearExecutor {
     /// Unload a cell (e.g., before hot-reload).
     pub fn unload_cell(&mut self, cell_id: CellId) -> Option<LoadedCell> {
         self.cells.remove(&cell_id)
+    }
+
+    /// Restore a previously unloaded cell (for hot-reload rollback).
+    pub fn restore_cell(&mut self, cell: LoadedCell) {
+        self.cells.insert(cell.compiled.cell_id, cell);
     }
 
     /// Check if a cell is loaded.
@@ -356,15 +387,11 @@ impl LinearExecutor {
                     )));
                 }
 
-                // Safety: The cell allocated this memory and we need to take ownership
-                let bytes = unsafe {
-                    let slice = std::slice::from_raw_parts(out_ptr, out_len);
-                    let vec = slice.to_vec();
-                    // Free the memory allocated by the cell
-                    // Note: This assumes the cell used standard allocation
-                    libc::free(out_ptr as *mut libc::c_void);
-                    vec
-                };
+                // Safety: The cell allocated this memory via libc malloc
+                // Use RAII guard to ensure cleanup even if processing panics
+                let memory_guard = unsafe { FfiMemoryGuard::new(out_ptr) };
+                let bytes = memory_guard.as_slice(out_len).to_vec();
+                // Guard's Drop will free the memory automatically
 
                 // Parse output format:
                 // display_len (8) | display_bytes (N) | widgets_len (8) | widgets_json (M) | rkyv_data

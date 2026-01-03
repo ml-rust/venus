@@ -1,11 +1,15 @@
 //! Source file editor for inserting, deleting, and reordering cells in .rs notebook files.
+//!
+//! Uses advisory file locking to prevent race conditions when multiple processes
+//! modify the same notebook file concurrently.
 
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use fs2::FileExt;
 
 use syn::spanned::Spanned;
-use syn::{Attribute, File};
+use syn::{Attribute, File as SynFile};
 
 use serde::{Deserialize, Serialize};
 
@@ -22,21 +26,41 @@ pub enum MoveDirection {
 }
 
 /// Editor for modifying .rs notebook source files.
+///
+/// Holds an exclusive file lock for the duration of the edit session
+/// to prevent concurrent modifications.
 pub struct SourceEditor {
     /// Path to the source file.
     path: PathBuf,
     /// Current file content.
     content: String,
+    /// Lock file handle (held for edit duration)
+    _lock_file: Option<File>,
 }
 
 impl SourceEditor {
     /// Load a source file for editing.
+    ///
+    /// Acquires an exclusive advisory lock on the file to prevent
+    /// concurrent modifications from other processes.
     pub fn load(path: &Path) -> Result<Self> {
+        // Open file for reading with exclusive lock
+        let lock_file = File::open(path)?;
+
+        // Try to acquire exclusive lock (non-blocking)
+        lock_file.try_lock_exclusive().map_err(|e| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                format!("File is locked by another process: {}: {}", path.display(), e),
+            ))
+        })?;
+
         let content = fs::read_to_string(path)?;
 
         Ok(Self {
             path: path.to_path_buf(),
             content,
+            _lock_file: Some(lock_file),
         })
     }
 
@@ -46,7 +70,7 @@ impl SourceEditor {
     /// Returns the name of the newly created cell.
     pub fn insert_cell(&mut self, after_cell_id: Option<&str>) -> Result<String> {
         // Parse the file to find cell positions and existing names
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         // Collect existing cell names for unique name generation
@@ -72,7 +96,7 @@ impl SourceEditor {
     /// Returns the name of the deleted cell.
     pub fn delete_cell(&mut self, cell_name: &str) -> Result<String> {
         // Parse the file to find cell positions
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         // Find the cell's span (including doc comments and attributes)
@@ -103,7 +127,7 @@ impl SourceEditor {
     /// Returns the name of the new cell.
     pub fn duplicate_cell(&mut self, cell_name: &str) -> Result<String> {
         // Parse the file to find cell positions and existing names
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         // Find the cell's span
@@ -139,7 +163,7 @@ impl SourceEditor {
     /// Returns Ok(()) on success.
     pub fn move_cell(&mut self, cell_name: &str, direction: MoveDirection) -> Result<()> {
         // Parse the file to find all cells in order
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         // Collect all cells with their spans in order
@@ -205,7 +229,7 @@ impl SourceEditor {
     /// Updates or adds a `# Display Name` heading to the cell's doc comment.
     pub fn rename_cell(&mut self, cell_name: &str, new_display_name: &str) -> Result<()> {
         // Parse the file to find the cell
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         // Find the cell
@@ -588,9 +612,13 @@ impl SourceEditor {
         Ok(())
     }
 
-    /// Save the modified content back to the file.
+    /// Save changes to the file.
+    ///
+    /// The exclusive lock is maintained until SourceEditor is dropped,
+    /// ensuring no other process can modify the file between save and drop.
     pub fn save(&self) -> Result<()> {
         fs::write(&self.path, &self.content)?;
+        // Lock is automatically released when SourceEditor is dropped
         Ok(())
     }
 
@@ -598,7 +626,7 @@ impl SourceEditor {
     ///
     /// Used for undo operations to capture cell content before deletion.
     pub fn get_cell_source(&self, cell_name: &str) -> Result<String> {
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         let (start_line, end_line) = self.find_cell_span(&file, cell_name)?;
@@ -615,7 +643,7 @@ impl SourceEditor {
     /// Returns None if the cell is the first one.
     /// Used for undo operations to track position for restoration.
     pub fn get_previous_cell_name(&self, cell_name: &str) -> Result<Option<String>> {
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         let cells = self.collect_cell_spans(&file);
@@ -637,7 +665,7 @@ impl SourceEditor {
     /// If `after_cell_name` is None, inserts at the beginning (before all cells).
     /// Used for undo delete operations.
     pub fn restore_cell(&mut self, source: &str, after_cell_name: Option<&str>) -> Result<()> {
-        let file: File = syn::parse_str(&self.content)
+        let file: SynFile = syn::parse_str(&self.content)
             .map_err(|e| Error::Parse(format!("Failed to parse source: {}", e)))?;
 
         let insert_pos = if let Some(after_name) = after_cell_name {
@@ -671,7 +699,7 @@ impl SourceEditor {
 
     /// Find the span of a cell (start line to end line, 1-indexed).
     /// Includes doc comments and attributes above the function.
-    fn find_cell_span(&self, file: &File, cell_name: &str) -> Result<(usize, usize)> {
+    fn find_cell_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
         for item in &file.items {
             if let syn::Item::Fn(func) = item {
                 if Self::has_cell_attribute(&func.attrs) {
@@ -757,7 +785,7 @@ impl SourceEditor {
     }
 
     /// Collect all cell function names from the file.
-    fn collect_cell_names(&self, file: &File) -> HashSet<String> {
+    fn collect_cell_names(&self, file: &SynFile) -> HashSet<String> {
         let mut names = HashSet::new();
 
         for item in &file.items {
@@ -773,7 +801,7 @@ impl SourceEditor {
 
     /// Collect all cells with their spans in source order.
     /// Returns Vec of (name, start_line, end_line).
-    fn collect_cell_spans(&self, file: &File) -> Vec<(String, usize, usize)> {
+    fn collect_cell_spans(&self, file: &SynFile) -> Vec<(String, usize, usize)> {
         let mut cells = Vec::new();
 
         for item in &file.items {
@@ -832,7 +860,7 @@ impl SourceEditor {
     }
 
     /// Find the byte position where the new cell should be inserted.
-    fn find_insert_position(&self, file: &File, after_cell_id: Option<&str>) -> Result<usize> {
+    fn find_insert_position(&self, file: &SynFile, after_cell_id: Option<&str>) -> Result<usize> {
         let lines: Vec<&str> = self.content.lines().collect();
 
         // Track the end position of cells

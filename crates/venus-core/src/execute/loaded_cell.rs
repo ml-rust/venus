@@ -60,3 +60,15 @@ impl LoadedCell {
         &self.compiled.name
     }
 }
+
+impl Drop for LoadedCell {
+    fn drop(&mut self) {
+        // Library unload happens automatically via libloading::Library::Drop
+        // Log for debugging memory leak issues
+        tracing::debug!(
+            "Unloading cell library: {} ({})",
+            self.compiled.name,
+            self.compiled.dylib_path.display()
+        );
+    }
+}

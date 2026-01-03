@@ -167,23 +167,54 @@ impl StateManager {
     }
 
     /// Persist all dirty outputs to disk.
+    ///
+    /// Uses atomic write pattern to prevent partial state corruption.
+    /// If any write fails, failed cells remain marked as dirty.
     pub fn flush(&mut self) -> Result<()> {
         let dirty_cells: Vec<_> = self.dirty.drain().collect();
+        let mut failed_cells = Vec::new();
+        let mut last_error = None;
+
         for cell_id in dirty_cells {
             if let Some(boxed) = self.outputs.get(&cell_id) {
                 let path = self.output_path(cell_id);
 
-                // Ensure parent directory exists
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
+                // Attempt to write this cell
+                let result = (|| -> Result<()> {
+                    // Ensure parent directory exists
+                    if let Some(parent) = path.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+
+                    let bytes = bincode::encode_to_vec(boxed.as_ref(), bincode::config::standard())
+                        .map_err(|e| Error::Serialization(e.to_string()))?;
+
+                    // Use atomic write pattern: write to temp file, then rename
+                    let temp_path = path.with_extension("tmp");
+                    fs::write(&temp_path, &bytes)?;
+                    fs::rename(&temp_path, &path)?;
+
+                    Ok(())
+                })();
+
+                if let Err(e) = result {
+                    // Track failed cell to re-add to dirty set
+                    failed_cells.push(cell_id);
+                    last_error = Some(e);
                 }
-
-                let bytes = bincode::encode_to_vec(boxed.as_ref(), bincode::config::standard())
-                    .map_err(|e| Error::Serialization(e.to_string()))?;
-
-                fs::write(&path, bytes)?;
             }
         }
+
+        // Re-add failed cells to dirty set
+        for cell_id in failed_cells {
+            self.dirty.insert(cell_id);
+        }
+
+        // Return error if any writes failed
+        if let Some(e) = last_error {
+            return Err(e);
+        }
+
         Ok(())
     }
 

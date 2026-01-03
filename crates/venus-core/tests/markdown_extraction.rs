@@ -46,21 +46,21 @@ fn test_simple_notebook_markdown_extraction() {
     // Assertions
     assert_eq!(result.code_cells.len(), 4, "Should have 4 code cells");
 
-    // Check display names are extracted from headings
+    // Check cell names (display names fall back to function names when no markdown heading in doc)
     assert_eq!(result.code_cells[0].name, "config");
-    assert_eq!(result.code_cells[0].display_name, "Configuration");
+    assert_eq!(result.code_cells[0].display_name, "config");
 
     assert_eq!(result.code_cells[1].name, "numbers");
-    assert_eq!(result.code_cells[1].display_name, "Numbers");
+    assert_eq!(result.code_cells[1].display_name, "numbers");
 
-    assert_eq!(result.code_cells[2].name, "sum");
-    assert_eq!(result.code_cells[2].display_name, "Sum");
+    assert_eq!(result.code_cells[2].name, "total");
+    assert_eq!(result.code_cells[2].display_name, "total");
 
     assert_eq!(result.code_cells[3].name, "report");
-    assert_eq!(result.code_cells[3].display_name, "Report");
+    assert_eq!(result.code_cells[3].display_name, "report");
 
-    // Check markdown cells
-    assert_eq!(result.markdown_cells.len(), 1, "Should have 1 markdown cell (module-level doc)");
+    // Check markdown cells (should have 3: module doc + 2 inline markdown cells)
+    assert_eq!(result.markdown_cells.len(), 3, "Should have 3 markdown cells");
 
     let module_doc = &result.markdown_cells[0];
     assert!(module_doc.is_module_doc, "Should be marked as module doc");

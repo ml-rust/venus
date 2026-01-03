@@ -159,7 +159,6 @@ impl CellCompiler {
 
         // Set up widget context with incoming values
         code.push_str("    // Set up widget context\n");
-        code.push_str("    use venus::widgets::{WidgetContext, WidgetValue, set_widget_context, take_widget_context};\n");
         code.push_str("    use std::collections::HashMap;\n");
         code.push_str("    let widget_values: HashMap<String, WidgetValue> = if widget_values_len > 0 {\n");
         code.push_str("        let json_slice = std::slice::from_raw_parts(widget_values_ptr, widget_values_len);\n");

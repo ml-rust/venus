@@ -2,16 +2,8 @@
 //!
 //! A simple Venus notebook demonstrating basic cell functionality.
 //!
-//! ```cargo
-//! [dependencies]
-//! venus = { path = "../crates/venus" }
-//! ```
 
-// Venus cells use &String/&Vec<T> rather than &str/&[T] because
-// dependency resolution matches parameter types to producer return types exactly.
 #![allow(clippy::ptr_arg)]
-
-use venus::prelude::*;
 
 /// # Configuration
 ///
@@ -22,6 +14,12 @@ pub fn config() -> Config {
         name: "Hello Venus".to_string(),
         iterations: 10,
     }
+}
+
+/// New cell
+#[venus::cell]
+pub fn new_cell_1() -> String {
+    "Hello".to_string()
 }
 
 /// # Greeting
@@ -51,8 +49,6 @@ pub fn result(greeting: &String, compute: &Vec<i32>) -> Summary {
         total: compute.iter().sum(),
     }
 }
-
-// Supporting types
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -85,22 +81,4 @@ impl Render for Summary {
             self.message, self.values, self.total
         ))
     }
-}
-
-// When run as a standalone binary, execute all cells in order
-fn main() {
-    println!("=== Venus Notebook: Hello World ===\n");
-
-    // Execute cells in dependency order
-    let cfg = config();
-    println!("Config: {:?}\n", cfg);
-
-    let greet = greeting(&cfg);
-    println!("Greeting: {}\n", greet);
-
-    let values = compute(&cfg);
-    println!("Compute: {:?}\n", values);
-
-    let summary = result(&greet, &values);
-    println!("Result:\n{}", summary.render_text());
 }

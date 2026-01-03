@@ -7,7 +7,29 @@
 
 #![allow(clippy::ptr_arg)]
 
+use serde::{Deserialize, Serialize};
 use venus::{input_slider, input_text_with_default, input_checkbox, input_select};
+
+// Types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Params {
+    pub count: i32,
+    pub multiplier: f64,
+    pub label: String,
+    pub include_squares: bool,
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Report {
+    pub title: String,
+    pub mode: String,
+    pub count: i32,
+    pub multiplier: f64,
+    pub include_squares: bool,
+    pub values: Vec<f64>,
+    pub final_result: f64,
+}
 
 /// # Parameters
 ///
@@ -88,41 +110,4 @@ pub fn report(params: &Params, numbers: &Vec<f64>, result: &f64) -> Report {
         values: numbers.clone(),
         final_result: *result,
     }
-}
-
-// Types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Params {
-    pub count: i32,
-    pub multiplier: f64,
-    pub label: String,
-    pub include_squares: bool,
-    pub mode: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Report {
-    pub title: String,
-    pub mode: String,
-    pub count: i32,
-    pub multiplier: f64,
-    pub include_squares: bool,
-    pub values: Vec<f64>,
-    pub final_result: f64,
-}
-
-fn main() {
-    println!("=== Interactive Widgets Demo ===\n");
-
-    let p = params();
-    println!("Parameters: {:?}", p);
-
-    let nums = numbers(&p);
-    println!("Numbers: {:?}", nums);
-
-    let res = result(&p, &nums);
-    println!("Result: {}", res);
-
-    let rpt = report(&p, &nums, &res);
-    println!("Report: {:?}", rpt);
 }

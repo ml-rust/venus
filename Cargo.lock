@@ -3215,7 +3215,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "venus"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "image",
  "polars",
@@ -3226,13 +3226,14 @@ dependencies = [
 
 [[package]]
 name = "venus-cli"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
- "bincode",
  "clap",
+ "dirs",
  "predicates",
+ "rkyv",
  "serde_json",
  "tempfile",
  "tokio",
@@ -3246,7 +3247,7 @@ dependencies = [
 
 [[package]]
 name = "venus-core"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "bincode",
  "libc",
@@ -3270,7 +3271,7 @@ dependencies = [
 
 [[package]]
 name = "venus-macros"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3279,13 +3280,15 @@ dependencies = [
 
 [[package]]
 name = "venus-server"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "anyhow",
  "axum",
  "dirs",
  "flate2",
  "futures",
+ "lazy_static",
+ "libc",
  "mime_guess",
  "notify",
  "notify-debouncer-mini",
@@ -3302,11 +3305,12 @@ dependencies = [
  "venus",
  "venus-core",
  "venus-sync",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "venus-sync"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "base64",
  "serde",
@@ -3319,7 +3323,7 @@ dependencies = [
 
 [[package]]
 name = "venus-worker"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.3"
 dependencies = [
  "anyhow",
  "bincode",

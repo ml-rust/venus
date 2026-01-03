@@ -3,6 +3,7 @@ name = "venus-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Core engine for Venus reactive notebook environment"
 
 [dependencies]

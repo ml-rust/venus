@@ -3,6 +3,7 @@ name = "venus"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Reactive notebook environment for Rust"
 
 [dependencies]

@@ -3,6 +3,7 @@ name = "venus-sync"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Sync engine for Venus - converts .rs notebooks to .ipynb"
 
 [dependencies]

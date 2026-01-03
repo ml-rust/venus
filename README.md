@@ -41,8 +41,11 @@ Venus supports rich markdown cells with full GitHub Flavored Markdown syntax:
 # Install Venus
 cargo install venus-cli
 
-# Create a new notebook
+# Create a new notebook (adds to Cargo.toml for LSP support)
 venus new my_notebook
+
+# Or create as workspace member
+venus new my_notebook --workspace
 
 # Run the notebook
 venus run my_notebook.rs
@@ -50,6 +53,8 @@ venus run my_notebook.rs
 # Start the interactive server
 venus serve my_notebook.rs
 ```
+
+Venus automatically creates/updates `Cargo.toml` to enable rust-analyzer LSP support.
 
 Then open `http://localhost:8080` in your browser.
 
@@ -79,15 +84,15 @@ pub fn total(numbers: &Vec<i32>) -> i32 {
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `venus run <notebook>` | Execute notebook headlessly |
-| `venus serve <notebook>` | Start interactive web server |
-| `venus sync <notebook>` | Generate `.ipynb` file |
-| `venus build <notebook>` | Build standalone binary |
-| `venus new <name>` | Create new notebook |
-| `venus export <notebook>` | Export to standalone HTML |
-| `venus watch <notebook>` | Auto-run on file changes |
+| Command                   | Description                  |
+| ------------------------- | ---------------------------- |
+| `venus run <notebook>`    | Execute notebook headlessly  |
+| `venus serve <notebook>`  | Start interactive web server |
+| `venus sync <notebook>`   | Generate `.ipynb` file       |
+| `venus build <notebook>`  | Build standalone binary      |
+| `venus new <name>`        | Create new notebook          |
+| `venus export <notebook>` | Export to standalone HTML    |
+| `venus watch <notebook>`  | Auto-run on file changes     |
 
 ## Documentation
 

@@ -18,7 +18,15 @@ Create a new notebook:
 venus new hello
 ```
 
-This creates `hello.rs` with a template:
+Venus creates `hello.rs` and generates `Cargo.toml` for rust-analyzer LSP support.
+
+For workspace projects, use:
+
+```bash
+venus new hello --workspace
+```
+
+Template:
 
 ```rust
 use venus::prelude::*;

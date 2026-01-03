@@ -66,9 +66,13 @@ Create a new notebook from template.
 
 ```bash
 venus new mynotebook
+venus new mynotebook --workspace
 ```
 
-Creates `mynotebook.rs` with a starter template.
+Creates `mynotebook.rs` and generates `Cargo.toml` for LSP support.
+
+**Options:**
+- `--workspace` - Create as workspace member in separate directory
 
 ### venus export
 

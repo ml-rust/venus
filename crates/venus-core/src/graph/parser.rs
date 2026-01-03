@@ -295,36 +295,83 @@ impl CellParser {
     }
 
     /// Extract standalone // comment blocks as markdown cells.
+    /// Only extracts top-level comments (not inside functions or other blocks).
     /// Splits on blank lines to create separate cells.
     fn extract_standalone_doc_comments(&mut self, source: &str) {
         let lines: Vec<&str> = source.lines().collect();
         let mut i = 0;
+        let mut brace_depth: i32 = 0; // Track {} nesting depth
 
         while i < lines.len() {
-            let trimmed = lines[i].trim();
+            let line = lines[i];
+            let trimmed = line.trim();
 
-            // Found a // comment (but not //! or ///)
-            if trimmed.starts_with("//") && !trimmed.starts_with("//!") && !trimmed.starts_with("///") {
+            // Update brace depth (simplified - doesn't handle strings/comments perfectly,
+            // but good enough since we're only looking at structure)
+            for ch in line.chars() {
+                match ch {
+                    '{' => brace_depth += 1,
+                    '}' => brace_depth = brace_depth.saturating_sub(1),
+                    _ => {}
+                }
+            }
+
+            // Only extract // comments at top level (brace_depth == 0)
+            if brace_depth == 0
+                && trimmed.starts_with("//")
+                && !trimmed.starts_with("//!")
+                && !trimmed.starts_with("///")
+            {
                 let start_line = i + 1; // 1-indexed
                 let mut comment_lines = vec![];
                 let mut j = i;
 
-                // Collect consecutive // lines (stop at blank line)
+                // Collect consecutive // lines (stop at blank line or non-comment)
                 while j < lines.len() {
                     let line_trimmed = lines[j].trim();
-                    if line_trimmed.starts_with("//") && !line_trimmed.starts_with("//!") && !line_trimmed.starts_with("///") {
+
+                    // Check if still at top level and still a comment
+                    if brace_depth == 0
+                        && line_trimmed.starts_with("//")
+                        && !line_trimmed.starts_with("//!")
+                        && !line_trimmed.starts_with("///")
+                    {
                         let content = line_trimmed.strip_prefix("//").unwrap_or("");
                         let content = content.strip_prefix(' ').unwrap_or(content);
                         comment_lines.push(content.to_string());
                         j += 1;
                     } else {
-                        // Stop at blank line or non-comment
+                        // Stop at blank line, non-comment, or brace
                         break;
                     }
                 }
 
-                // Only create markdown cell if we have content
-                if !comment_lines.is_empty() {
+                // Check if the next non-empty line is code (struct, enum, fn, etc.)
+                // If so, this comment is attached to that code and should not be a markdown cell
+                let mut is_attached = false;
+                for k in j..lines.len() {
+                    let next_line = lines[k].trim();
+                    if next_line.is_empty() {
+                        continue; // Skip blank lines
+                    }
+                    // Check if this is a code item (struct, enum, type, fn, impl, use, etc.)
+                    if next_line.starts_with("pub ")
+                        || next_line.starts_with("struct ")
+                        || next_line.starts_with("enum ")
+                        || next_line.starts_with("type ")
+                        || next_line.starts_with("fn ")
+                        || next_line.starts_with("impl ")
+                        || next_line.starts_with("use ")
+                        || next_line.starts_with("mod ")
+                        || next_line.starts_with("#[")
+                    {
+                        is_attached = true;
+                    }
+                    break; // Only check the first non-empty line
+                }
+
+                // Only create markdown cell if we have content AND it's not attached to code
+                if !comment_lines.is_empty() && !is_attached {
                     let content = comment_lines.join("\n");
                     let end_line = j; // j is the line after the last //
 

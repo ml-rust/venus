@@ -188,55 +188,82 @@ impl UniverseBuilder {
         Self::transform_derives_to_rkyv(&types)
     }
 
-    /// Transform serde Serialize/Deserialize derives to rkyv equivalents.
+    /// Transform derives to include rkyv serialization for all user types.
+    ///
+    /// All user-defined types (structs/enums) need rkyv derives since cells
+    /// serialize their return values. This function adds Archive, RkyvSerialize,
+    /// and RkyvDeserialize while preserving existing derives like Debug, Clone.
     fn transform_derives_to_rkyv(source: &str) -> String {
+        let lines: Vec<&str> = source.lines().collect();
         let mut result = String::new();
+        let mut i = 0;
 
-        for line in source.lines() {
+        while i < lines.len() {
+            let line = lines[i];
             let trimmed = line.trim();
 
             if trimmed.starts_with("#[derive(") {
-                // Extract the derive contents
-                if let Some(start) = trimmed.find('(') {
-                    if let Some(end) = trimmed.rfind(')') {
-                        let derives = &trimmed[start + 1..end];
-                        let mut new_derives: Vec<&str> = Vec::new();
-                        let mut needs_rkyv = false;
+                // Look ahead to see if this is for a struct/enum
+                let mut is_type_def = false;
+                for j in (i + 1)..lines.len() {
+                    let next = lines[j].trim();
+                    if next.is_empty() || next.starts_with("//") || next.starts_with("#[") {
+                        continue; // Skip comments and other attributes
+                    }
+                    if next.starts_with("pub struct ") || next.starts_with("struct ")
+                        || next.starts_with("pub enum ") || next.starts_with("enum ") {
+                        is_type_def = true;
+                    }
+                    break; // Found the item this derive is for
+                }
 
-                        for derive in derives.split(',').map(|s| s.trim()) {
-                            match derive {
-                                "Serialize" | "Deserialize" => {
-                                    // Skip serde derives, we'll add rkyv
-                                    needs_rkyv = true;
+                if is_type_def {
+                    // Extract and transform derives
+                    if let Some(start) = trimmed.find('(') {
+                        if let Some(end) = trimmed.rfind(')') {
+                            let derives = &trimmed[start + 1..end];
+                            let mut new_derives: Vec<&str> = Vec::new();
+                            let mut has_rkyv = false;
+
+                            for derive in derives.split(',').map(|s| s.trim()) {
+                                match derive {
+                                    "Serialize" | "Deserialize" => {
+                                        // Skip serde derives, we'll add rkyv
+                                    }
+                                    "Archive" | "RkyvSerialize" | "RkyvDeserialize" => {
+                                        // Already has rkyv derives
+                                        has_rkyv = true;
+                                        new_derives.push(derive);
+                                    }
+                                    other if !other.is_empty() => {
+                                        new_derives.push(other);
+                                    }
+                                    _ => {}
                                 }
-                                other if !other.is_empty() => {
-                                    new_derives.push(other);
-                                }
-                                _ => {}
                             }
-                        }
 
-                        if needs_rkyv {
-                            // Add rkyv derives
-                            new_derives.push("Archive");
-                            new_derives.push("RkyvSerialize");
-                            new_derives.push("RkyvDeserialize");
-                        }
+                            // Always add rkyv derives for structs/enums if not already present
+                            if !has_rkyv {
+                                new_derives.push("Archive");
+                                new_derives.push("RkyvSerialize");
+                                new_derives.push("RkyvDeserialize");
+                            }
 
-                        // Reconstruct the derive line
-                        result.push_str(&format!("#[derive({})]\n", new_derives.join(", ")));
+                            // Reconstruct the derive line
+                            result.push_str(&format!("#[derive({})]\n", new_derives.join(", ")));
 
-                        // Add rkyv attribute for archived type derives
-                        if needs_rkyv {
+                            // Add rkyv attribute for archived type derives
                             result.push_str("#[rkyv(derive(Debug))]\n");
+                            i += 1;
+                            continue;
                         }
-                        continue;
                     }
                 }
             }
 
             result.push_str(line);
             result.push('\n');
+            i += 1;
         }
 
         result
@@ -377,6 +404,12 @@ impl UniverseBuilder {
         }
 
         for dep in self.dependencies() {
+            // Skip 'venus' dependency if it's already been auto-added above
+            // This prevents duplicate key errors in the generated Cargo.toml
+            if dep.name == "venus" {
+                continue;
+            }
+
             if let Some(path) = &dep.path {
                 toml.push_str(&format!(
                     "{} = {{ path = \"{}\" }}\n",
@@ -427,18 +460,19 @@ impl UniverseBuilder {
         // Re-export serde_json for widget JSON parsing in cell wrappers
         lib.push_str("pub use serde_json;\n\n");
 
-        // Re-export venus widget functions for interactive notebooks
-        lib.push_str("pub use venus;\n");
+        // Re-export venus widget functions and types for interactive notebooks
         lib.push_str("pub use venus::{input_slider, input_slider_with_step, input_slider_labeled};\n");
         lib.push_str("pub use venus::{input_text, input_text_with_default, input_text_labeled};\n");
         lib.push_str("pub use venus::{input_select, input_select_labeled};\n");
-        lib.push_str("pub use venus::{input_checkbox, input_checkbox_labeled};\n\n");
+        lib.push_str("pub use venus::{input_checkbox, input_checkbox_labeled};\n");
+        lib.push_str("pub use venus::widgets::{WidgetContext, WidgetValue, WidgetDef};\n");
+        lib.push_str("pub use venus::widgets::{set_widget_context, take_widget_context};\n\n");
 
         for dep in self.dependencies() {
             // Convert crate name to valid Rust identifier
             let ident = dep.name.replace('-', "_");
-            // Skip rkyv since we already exported it
-            if ident != "rkyv" {
+            // Skip rkyv and venus since we already exported them above
+            if ident != "rkyv" && ident != "venus" {
                 lib.push_str(&format!("pub use {};\n", ident));
             }
         }

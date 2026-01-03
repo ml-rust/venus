@@ -1,6 +1,7 @@
 //! Venus CLI - Reactive notebook environment for Rust.
 
 mod build;
+mod cargo_manager;
 mod colors;
 mod executor;
 mod export;
@@ -79,6 +80,10 @@ enum Commands {
     New {
         /// Name of the notebook (without .rs extension)
         name: String,
+
+        /// Create as workspace member in separate directory (default: add as binary to Cargo.toml)
+        #[arg(long)]
+        workspace: bool,
     },
 
     /// Export notebook as standalone HTML file
@@ -158,8 +163,8 @@ async fn main() -> anyhow::Result<()> {
             build::execute(&notebook, output.as_deref(), release)?;
         }
 
-        Commands::New { name } => {
-            create_new_notebook(&name)?;
+        Commands::New { name, workspace } => {
+            create_new_notebook(&name, workspace)?;
         }
 
         Commands::Export {
@@ -185,27 +190,53 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Create a new notebook from template.
-fn create_new_notebook(name: &str) -> anyhow::Result<()> {
+fn create_new_notebook(name: &str, workspace: bool) -> anyhow::Result<()> {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
+    use cargo_manager::{CargoManager, IntegrationMode};
 
-    let filename = if name.ends_with(".rs") {
-        name.to_string()
+    // Determine notebook name and file path
+    let (notebook_name, filename, notebook_dir) = if workspace {
+        // Workspace mode: create in subdirectory
+        let notebook_name = name.trim_end_matches(".rs");
+        let notebook_dir = PathBuf::from(notebook_name);
+        let filename = format!("{}.rs", notebook_name);
+        (notebook_name.to_string(), filename, Some(notebook_dir))
     } else {
-        format!("{}.rs", name)
+        // Binary mode: create in current directory
+        let filename = if name.ends_with(".rs") {
+            name.to_string()
+        } else {
+            format!("{}.rs", name)
+        };
+        let notebook_name = Path::new(&filename)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        (notebook_name, filename, None)
     };
 
-    let path = Path::new(&filename);
-    if path.exists() {
-        anyhow::bail!("File {} already exists", filename);
+    // Create directory if workspace mode
+    if let Some(ref dir) = notebook_dir {
+        if dir.exists() {
+            anyhow::bail!("Directory {} already exists", dir.display());
+        }
+        fs::create_dir_all(dir)?;
     }
 
-    let notebook_name = path
-        .file_stem()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
+    // Determine full path to notebook file
+    let notebook_path = if let Some(ref dir) = notebook_dir {
+        dir.join(&filename)
+    } else {
+        PathBuf::from(&filename)
+    };
 
+    if notebook_path.exists() {
+        anyhow::bail!("File {} already exists", notebook_path.display());
+    }
+
+    // Generate notebook template
     let template = format!(
         r#"//! # {name}
 //!
@@ -233,8 +264,30 @@ pub fn process(greeting: &String) -> String {{
         name = notebook_name
     );
 
-    fs::write(path, template)?;
-    println!("Created new notebook: {}", filename);
+    fs::write(&notebook_path, template)?;
+    println!("Created new notebook: {}", notebook_path.display());
+
+    // Update Cargo.toml for LSP support
+    let current_dir = std::env::current_dir()?;
+    let cargo_manager = CargoManager::new(&current_dir)?;
+
+    let mode = if workspace {
+        IntegrationMode::WorkspaceMember
+    } else {
+        IntegrationMode::Binary
+    };
+
+    // Get relative path for Cargo.toml
+    let relative_path = if workspace {
+        PathBuf::from(format!("{}/{}", notebook_name, filename))
+    } else {
+        PathBuf::from(&filename)
+    };
+
+    if let Err(e) = cargo_manager.add_notebook(&notebook_name, &relative_path, mode) {
+        eprintln!("Warning: Could not update Cargo.toml: {}", e);
+        eprintln!("LSP features may not work. You can manually create a Cargo.toml.");
+    }
 
     Ok(())
 }

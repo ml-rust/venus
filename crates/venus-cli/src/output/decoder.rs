@@ -1,4 +1,4 @@
-//! Output value decoding from bincode bytes.
+//! Output value decoding from rkyv bytes.
 //!
 //! Decodes serialized cell outputs back to displayable strings
 //! based on the cell's return type.
@@ -6,19 +6,19 @@
 /// Decode a primitive type from bytes and format it.
 macro_rules! decode_primitive {
     ($bytes:expr, $type:ty) => {
-        bincode::decode_from_slice::<$type, _>($bytes, bincode::config::standard())
+        rkyv::from_bytes::<$type, rkyv::rancor::Error>($bytes)
             .ok()
-            .map(|(v, _)| format!("{}", v))
+            .map(|v| format!("{}", v))
     };
     ($bytes:expr, $type:ty, debug) => {
-        bincode::decode_from_slice::<$type, _>($bytes, bincode::config::standard())
+        rkyv::from_bytes::<$type, rkyv::rancor::Error>($bytes)
             .ok()
-            .map(|(v, _)| format!("{:?}", v))
+            .map(|v| format!("{:?}", v))
     };
     ($bytes:expr, $type:ty, quoted) => {
-        bincode::decode_from_slice::<$type, _>($bytes, bincode::config::standard())
+        rkyv::from_bytes::<$type, rkyv::rancor::Error>($bytes)
             .ok()
-            .map(|(v, _)| format!("\"{}\"", v))
+            .map(|v| format!("\"{}\"", v))
     };
 }
 
@@ -38,7 +38,7 @@ macro_rules! decode_primitive {
 /// # Arguments
 ///
 /// * `type_name` - The Rust type name as a string (e.g., "i32", "Vec<String>")
-/// * `bytes` - The bincode-serialized bytes
+/// * `bytes` - The rkyv-serialized bytes
 pub fn try_decode_value(type_name: &str, bytes: &[u8]) -> Option<String> {
     match type_name {
         // Primitives
@@ -106,14 +106,14 @@ mod tests {
     #[test]
     fn test_decode_i32() {
         let value: i32 = 42;
-        let bytes = bincode::encode_to_vec(&value, bincode::config::standard()).unwrap();
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&value).unwrap();
         assert_eq!(try_decode_value("i32", &bytes), Some("42".to_string()));
     }
 
     #[test]
     fn test_decode_string() {
         let value = "hello".to_string();
-        let bytes = bincode::encode_to_vec(&value, bincode::config::standard()).unwrap();
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&value).unwrap();
         assert_eq!(
             try_decode_value("String", &bytes),
             Some("\"hello\"".to_string())
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn test_decode_vec_i32() {
         let value: Vec<i32> = vec![1, 2, 3];
-        let bytes = bincode::encode_to_vec(&value, bincode::config::standard()).unwrap();
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&value).unwrap();
         assert_eq!(
             try_decode_value("Vec<i32>", &bytes),
             Some("[1, 2, 3]".to_string())

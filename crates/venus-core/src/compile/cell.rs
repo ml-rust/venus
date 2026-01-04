@@ -443,12 +443,11 @@ impl CellCompiler {
         let meta_file = self.cache_meta_path(&compiled.name);
 
         // Ensure cache directory exists
-        if let Some(parent) = meta_file.parent() {
-            if let Err(e) = fs::create_dir_all(parent) {
+        if let Some(parent) = meta_file.parent()
+            && let Err(e) = fs::create_dir_all(parent) {
                 tracing::warn!("Failed to create cache directory: {}", e);
                 return;
             }
-        }
 
         let meta = format!("{}\n{}", compiled.source_hash, compiled.deps_hash);
         // Cache save is opportunistic; failure doesn't affect correctness

@@ -234,8 +234,8 @@ impl SourceEditor {
 
         // Find the cell
         for item in &file.items {
-            if let syn::Item::Fn(func) = item {
-                if Self::has_cell_attribute(&func.attrs) {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
                     let name = func.sig.ident.to_string();
                     if name == cell_name {
                         // Extract existing doc comments (excluding # heading lines)
@@ -314,12 +314,11 @@ impl SourceEditor {
                         // Add the #[venus::cell] attribute if it's not a doc comment
                         let mut added_cell_attr = false;
                         for attr in &func.attrs {
-                            if !attr.path().is_ident("doc") {
-                                if !added_cell_attr {
+                            if !attr.path().is_ident("doc")
+                                && !added_cell_attr {
                                     new_content.push_str(&format!("{}#[venus::cell]\n", indent));
                                     added_cell_attr = true;
                                 }
-                            }
                         }
 
                         if !added_cell_attr {
@@ -332,7 +331,6 @@ impl SourceEditor {
                         return Ok(());
                     }
                 }
-            }
         }
 
         Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
@@ -766,8 +764,8 @@ impl SourceEditor {
     /// Includes doc comments and attributes above the function.
     fn find_cell_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
         for item in &file.items {
-            if let syn::Item::Fn(func) = item {
-                if Self::has_cell_attribute(&func.attrs) {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
                     let name = func.sig.ident.to_string();
                     if name == cell_name {
                         // Start from the first attribute or doc comment
@@ -787,7 +785,6 @@ impl SourceEditor {
                         return Ok((start_line, end_line));
                     }
                 }
-            }
         }
 
         Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
@@ -854,11 +851,10 @@ impl SourceEditor {
         let mut names = HashSet::new();
 
         for item in &file.items {
-            if let syn::Item::Fn(func) = item {
-                if Self::has_cell_attribute(&func.attrs) {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
                     names.insert(func.sig.ident.to_string());
                 }
-            }
         }
 
         names
@@ -870,8 +866,8 @@ impl SourceEditor {
         let mut cells = Vec::new();
 
         for item in &file.items {
-            if let syn::Item::Fn(func) = item {
-                if Self::has_cell_attribute(&func.attrs) {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
                     let name = func.sig.ident.to_string();
 
                     // Start from the first attribute or doc comment
@@ -889,7 +885,6 @@ impl SourceEditor {
 
                     cells.push((name, start_line, end_line));
                 }
-            }
         }
 
         cells
@@ -933,23 +928,21 @@ impl SourceEditor {
         let mut target_end_line = None;
 
         for item in &file.items {
-            if let syn::Item::Fn(func) = item {
-                if Self::has_cell_attribute(&func.attrs) {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
                     let name = func.sig.ident.to_string();
 
                     // Get the end line of this function
                     let end_line = func.block.brace_token.span.close().end().line;
 
-                    if let Some(target) = after_cell_id {
-                        if name == target {
+                    if let Some(target) = after_cell_id
+                        && name == target {
                             target_end_line = Some(end_line);
                             break;
                         }
-                    }
 
                     last_cell_end_line = end_line;
                 }
-            }
         }
 
         // Determine which line to insert after

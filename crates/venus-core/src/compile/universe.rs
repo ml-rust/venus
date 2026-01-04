@@ -102,6 +102,7 @@ impl UniverseBuilder {
             if is_derive_attr {
                 // Look ahead to see if this is for a struct/enum
                 let mut is_type_def = false;
+                #[allow(clippy::needless_range_loop)]
                 for j in (i + 1)..lines.len() {
                     let next = lines[j].trim();
                     if next.is_empty() || next.starts_with("//") || next.starts_with("#[") {
@@ -116,8 +117,8 @@ impl UniverseBuilder {
 
                 if is_type_def {
                     // Extract and transform derives
-                    if let Some(start) = trimmed.find('(') {
-                        if let Some(end) = trimmed.rfind(')') {
+                    if let Some(start) = trimmed.find('(')
+                        && let Some(end) = trimmed.rfind(')') {
                             let derives = &trimmed[start + 1..end];
                             let mut new_derives: Vec<&str> = Vec::new();
                             let mut has_rkyv = false;
@@ -154,7 +155,6 @@ impl UniverseBuilder {
                             i += 1;
                             continue;
                         }
-                    }
                 }
             }
 
@@ -271,8 +271,8 @@ impl UniverseBuilder {
     /// Copy dependencies from workspace Cargo.toml (if it exists).
     /// Returns the dependencies section as a string.
     fn copy_parent_dependencies(&self) -> String {
-        if let Some(cargo_toml_path) = &self.workspace_cargo_toml {
-            if let Ok(content) = fs::read_to_string(cargo_toml_path) {
+        if let Some(cargo_toml_path) = &self.workspace_cargo_toml
+            && let Ok(content) = fs::read_to_string(cargo_toml_path) {
                 // Simple parser: extract [workspace.dependencies] or [dependencies] section
                 if let Some(deps_start) = content.find("[workspace.dependencies]") {
                     let after_deps = &content[deps_start + "[workspace.dependencies]".len()..];
@@ -294,7 +294,6 @@ impl UniverseBuilder {
                     return deps_section.trim().to_string();
                 }
             }
-        }
 
         String::new()
     }

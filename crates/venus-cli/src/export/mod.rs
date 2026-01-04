@@ -86,9 +86,9 @@ pub fn execute(
 
         // Update exports with execution results
         for &cell_id in &execution.executed_cells {
-            if let Some(cell) = executor.cell_by_id(cell_id) {
-                if let Some(output) = execution.outputs.get(&cell_id) {
-                    if let Some(export) = cell_exports.get_mut(&cell_id) {
+            if let Some(cell) = executor.cell_by_id(cell_id)
+                && let Some(output) = execution.outputs.get(&cell_id)
+                    && let Some(export) = cell_exports.get_mut(&cell_id) {
                         // Use display_text if available, otherwise try to decode
                         let output_text = output
                             .display_text()
@@ -98,8 +98,6 @@ pub fn execute(
                         export.execution_time_ms =
                             Some(execution.execution_time.as_millis() as u64 / execution.executed_cells.len() as u64);
                     }
-                }
-            }
         }
 
         println!(

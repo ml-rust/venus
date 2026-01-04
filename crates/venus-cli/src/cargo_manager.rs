@@ -68,12 +68,11 @@ impl CargoManager {
         // 2. Check if venus is installed via cargo install
         // When installed, venus-cli is in ~/.cargo/bin/venus
         // We can reference venus from crates.io
-        if let Ok(exe_path) = std::env::current_exe() {
-            if exe_path.starts_with(dirs::home_dir().unwrap_or_default().join(".cargo/bin")) {
+        if let Ok(exe_path) = std::env::current_exe()
+            && exe_path.starts_with(dirs::home_dir().unwrap_or_default().join(".cargo/bin")) {
                 // Installed via cargo install - use crates.io version
                 return Ok(PathBuf::from("venus")); // This will use registry version
             }
-        }
 
         // 3. Development mode - find relative to this binary
         if let Ok(exe_path) = std::env::current_exe() {
@@ -82,11 +81,10 @@ impl CargoManager {
                 let venus_crate = target_dir.parent()
                     .map(|repo_root| repo_root.join("crates/venus"));
 
-                if let Some(path) = venus_crate {
-                    if path.exists() {
+                if let Some(path) = venus_crate
+                    && path.exists() {
                         return Ok(path);
                     }
-                }
             }
         }
 

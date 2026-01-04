@@ -59,11 +59,10 @@ impl ExecutorKillHandle {
     ///
     /// If no cell is executing, this is a no-op.
     pub fn kill(&self) {
-        if let Ok(guard) = self.inner.lock() {
-            if let Some(ref kill_handle) = *guard {
+        if let Ok(guard) = self.inner.lock()
+            && let Some(ref kill_handle) = *guard {
                 kill_handle.kill();
             }
-        }
     }
 }
 
@@ -354,11 +353,10 @@ impl ProcessExecutor {
     /// mid-computation without any cooperation from the cell.
     /// This method is thread-safe and can be called from any thread.
     pub fn kill_current(&self) {
-        if let Ok(guard) = self.current_worker_kill.lock() {
-            if let Some(ref kill_handle) = *guard {
+        if let Ok(guard) = self.current_worker_kill.lock()
+            && let Some(ref kill_handle) = *guard {
                 kill_handle.kill();
             }
-        }
     }
 
     /// Get a handle that can be used to kill the current execution from another thread.

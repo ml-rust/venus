@@ -86,8 +86,8 @@ impl WorkerHandle {
         }
 
         // 2. Look next to current executable
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
+        if let Ok(exe_path) = std::env::current_exe()
+            && let Some(exe_dir) = exe_path.parent() {
                 let worker_name = if cfg!(windows) {
                     "venus-worker.exe"
                 } else {
@@ -98,7 +98,6 @@ impl WorkerHandle {
                     return Ok(worker_path);
                 }
             }
-        }
 
         // 3. Try system PATH via which
         let worker_name = if cfg!(windows) {
@@ -251,10 +250,7 @@ impl WorkerHandle {
         if self.killed {
             return false;
         }
-        match self.child.try_wait() {
-            Ok(None) => true,
-            _ => false,
-        }
+        matches!(self.child.try_wait(), Ok(None))
     }
 
     /// Get the process ID of the worker.

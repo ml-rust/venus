@@ -295,7 +295,7 @@ impl NotebookSession {
     /// If the doc comment starts with `# Heading`, removes that line and returns
     /// the rest of the content. Otherwise returns the original content.
     fn strip_display_name_from_description(doc_comment: &Option<String>) -> Option<String> {
-        doc_comment.as_ref().map(|doc| {
+        doc_comment.as_ref().and_then(|doc| {
             let lines: Vec<&str> = doc.lines().collect();
 
             // Find the first heading line
@@ -303,14 +303,12 @@ impl NotebookSession {
                 let trimmed = first_line.trim();
                 if trimmed.starts_with('#') {
                     // Skip the heading line and return the rest
-                    let remaining: Vec<&str> = lines.iter().skip(1)
-                        .map(|s| *s)
+                    let remaining: Vec<&str> = lines.iter().skip(1).copied()
                         .collect();
 
                     // Trim leading empty lines
                     let trimmed_lines: Vec<&str> = remaining.iter()
-                        .skip_while(|line| line.trim().is_empty())
-                        .map(|s| *s)
+                        .skip_while(|line| line.trim().is_empty()).copied()
                         .collect();
 
                     if trimmed_lines.is_empty() {
@@ -323,7 +321,7 @@ impl NotebookSession {
 
             // No heading found, return original
             Some(doc.clone())
-        }).flatten()
+        })
     }
 
     /// Update cell states from parsed cells.
@@ -411,7 +409,7 @@ impl NotebookSession {
         use std::fs;
 
         let dirs = NotebookDirs::from_notebook_path(&self.path)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         let universe_src = dirs.build_dir.join("universe").join("src");
         fs::create_dir_all(&universe_src)?;
 
@@ -1320,8 +1318,8 @@ impl NotebookSession {
         content: &str,
         declared_type: venus_core::graph::DefinitionType,
     ) -> ServerResult<()> {
-        if let Some(inferred_type) = Self::infer_definition_type(content) {
-            if std::mem::discriminant(&inferred_type) != std::mem::discriminant(&declared_type) {
+        if let Some(inferred_type) = Self::infer_definition_type(content)
+            && std::mem::discriminant(&inferred_type) != std::mem::discriminant(&declared_type) {
                 tracing::warn!(
                     "Definition type mismatch: declared {:?} but content suggests {:?}",
                     declared_type,
@@ -1330,7 +1328,6 @@ impl NotebookSession {
                 // For now, just warn - don't fail the operation
                 // The universe build will catch actual syntax errors
             }
-        }
         Ok(())
     }
 

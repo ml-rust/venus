@@ -221,8 +221,8 @@ impl ProductionBuilder {
 
         // Validate all path dependencies can be resolved
         for dep in self.parser.dependencies() {
-            if let Some(path) = &dep.path {
-                if path.is_relative() {
+            if let Some(path) = &dep.path
+                && path.is_relative() {
                     let full_path = notebook_dir.join(path);
                     full_path.canonicalize().map_err(|e| Error::Compilation {
                         cell_id: None,
@@ -234,7 +234,6 @@ impl ProductionBuilder {
                         ),
                     })?;
                 }
-            }
         }
 
         let config = ManifestConfig {
@@ -265,7 +264,7 @@ impl ProductionBuilder {
             "//! Source: {}\n",
             self.notebook_path.display()
         ));
-        code.push_str("\n");
+        code.push('\n');
         code.push_str("#![allow(unused_imports)]\n");
         code.push_str("#![allow(dead_code)]\n");
         code.push_str("#![allow(clippy::ptr_arg)]\n");

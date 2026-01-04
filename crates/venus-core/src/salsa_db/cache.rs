@@ -201,7 +201,7 @@ impl CachePersistence {
         // Write to temp file first for atomic operation
         // Use PID to make temp file unique and avoid race conditions
         let pid = std::process::id();
-        let temp_path = path.with_extension(&format!("tmp.{}", pid));
+        let temp_path = path.with_extension(format!("tmp.{}", pid));
 
         let mut file = fs::File::create(&temp_path)?;
         file.write_all(&bytes)?;

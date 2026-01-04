@@ -261,7 +261,7 @@ async fn handle_cell_operation<T, F, R>(
     let result = operation(session);
 
     // Convert Result<T, ServerError> to Result<T, String> for the response constructor
-    let response = match result {
+    match result {
         Ok(value) => {
             let msg = response_constructor(Ok(value));
             send_message(sender, &msg).await;
@@ -278,7 +278,7 @@ async fn handle_cell_operation<T, F, R>(
         }
     };
 
-    response
+    
 }
 
 /// Handle a client message.

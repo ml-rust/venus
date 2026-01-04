@@ -10,6 +10,7 @@ description = "Reactive notebook environment for Rust"
 venus-macros.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+rkyv.workspace = true
 
 # Optional rich output integrations
 polars = { version = "0.46", optional = true, default-features = false, features = [

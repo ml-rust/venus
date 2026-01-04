@@ -13,4 +13,4 @@ mod types;
 
 pub use parser::{CellParser, ParseResult};
 pub use source_editor::{MoveDirection, SourceEditor};
-pub use types::{CellId, CellInfo, CellType, Dependency, GraphEngine, MarkdownCell, SourceSpan};
+pub use types::{CellId, CellInfo, CellType, DefinitionCell, DefinitionType, Dependency, GraphEngine, MarkdownCell, SourceSpan};

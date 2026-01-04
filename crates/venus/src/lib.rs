@@ -47,6 +47,10 @@ pub mod prelude {
 
     pub use crate::cell;
     pub use crate::render::Render;
+
+    // Re-export rkyv derives for user structs (all cell return types need serialization)
+    pub use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+
     // Widget functions
     pub use crate::widgets::{
         input_checkbox, input_checkbox_labeled,

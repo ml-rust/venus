@@ -56,6 +56,8 @@ pub enum CellType {
     Code,
     /// Markdown cell (pure text/documentation, non-executable).
     Markdown,
+    /// Definition cell (imports, types, helper functions - non-executable but editable).
+    Definition,
 }
 
 /// Complete information about a code cell.
@@ -96,6 +98,39 @@ pub struct MarkdownCell {
     pub is_module_doc: bool,
 }
 
+/// Type of definition in a definition cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefinitionType {
+    /// Import statement (use ...)
+    Import,
+    /// Struct definition
+    Struct,
+    /// Enum definition
+    Enum,
+    /// Type alias
+    TypeAlias,
+    /// Helper function (fn without #[venus::cell])
+    HelperFunction,
+}
+
+/// Complete information about a definition cell.
+#[derive(Debug, Clone)]
+pub struct DefinitionCell {
+    /// Unique identifier
+    pub id: CellId,
+    /// Definition content (source code)
+    pub content: String,
+    /// Type of definition
+    pub definition_type: DefinitionType,
+    /// Location in source file
+    pub span: SourceSpan,
+    /// Source file path
+    pub source_file: PathBuf,
+    /// Attached doc comments (stays WITH the definition)
+    pub doc_comment: Option<String>,
+}
+
 /// The reactive dependency graph engine.
 pub struct GraphEngine {
     /// The directed graph: edges go from producer to consumer
@@ -106,6 +141,8 @@ pub struct GraphEngine {
     cells: FxHashMap<CellId, CellInfo>,
     /// Output name to producing cell mapping
     outputs: FxHashMap<String, CellId>,
+    /// Definition cells by ID (imports, types, helpers)
+    definition_cells: FxHashMap<CellId, DefinitionCell>,
     /// Next cell ID to assign
     next_id: usize,
 }
@@ -118,6 +155,7 @@ impl GraphEngine {
             node_indices: FxHashMap::default(),
             cells: FxHashMap::default(),
             outputs: FxHashMap::default(),
+            definition_cells: FxHashMap::default(),
             next_id: 0,
         }
     }
@@ -339,6 +377,35 @@ impl GraphEngine {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Add a definition cell to the graph.
+    pub fn add_definition_cell(&mut self, mut cell: DefinitionCell) -> CellId {
+        let id = CellId::new(self.next_id);
+        self.next_id += 1;
+        cell.id = id;
+        self.definition_cells.insert(id, cell);
+        id
+    }
+
+    /// Get a definition cell by ID.
+    pub fn get_definition_cell(&self, id: CellId) -> Option<&DefinitionCell> {
+        self.definition_cells.get(&id)
+    }
+
+    /// Get a mutable reference to a definition cell by ID.
+    pub fn get_definition_cell_mut(&mut self, id: CellId) -> Option<&mut DefinitionCell> {
+        self.definition_cells.get_mut(&id)
+    }
+
+    /// Get all definition cells.
+    pub fn definition_cells(&self) -> impl Iterator<Item = &DefinitionCell> {
+        self.definition_cells.values()
+    }
+
+    /// Remove a definition cell by ID.
+    pub fn remove_definition_cell(&mut self, id: CellId) -> Option<DefinitionCell> {
+        self.definition_cells.remove(&id)
     }
 }
 

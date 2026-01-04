@@ -5,7 +5,7 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{Attribute, File, FnArg, ItemFn, Pat, ReturnType, Type};
 
-use super::types::{CellId, CellInfo, Dependency, MarkdownCell, SourceSpan};
+use super::types::{CellId, CellInfo, Dependency, DefinitionCell, MarkdownCell, SourceSpan};
 use crate::error::{Error, Result};
 
 /// Result of parsing a notebook file.
@@ -15,6 +15,8 @@ pub struct ParseResult {
     pub code_cells: Vec<CellInfo>,
     /// Markdown cells (documentation blocks).
     pub markdown_cells: Vec<MarkdownCell>,
+    /// Definition cells (imports, types, helper functions).
+    pub definition_cells: Vec<DefinitionCell>,
 }
 
 /// Parser for extracting cells from Rust source files.
@@ -23,6 +25,8 @@ pub struct CellParser {
     cells: Vec<CellInfo>,
     /// Extracted markdown cells
     markdown_cells: Vec<MarkdownCell>,
+    /// Extracted definition cells
+    definition_cells: Vec<DefinitionCell>,
     /// Source file path
     source_file: std::path::PathBuf,
     /// Source code (for extracting spans)
@@ -35,6 +39,7 @@ impl CellParser {
         Self {
             cells: Vec::new(),
             markdown_cells: Vec::new(),
+            definition_cells: Vec::new(),
             source_file: std::path::PathBuf::new(),
             source_code: String::new(),
         }
@@ -54,6 +59,7 @@ impl CellParser {
         self.source_code = source.to_string();
         self.cells.clear();
         self.markdown_cells.clear();
+        self.definition_cells.clear();
 
         let file: File = syn::parse_str(source)
             .map_err(|e| Error::Parse(format!("Failed to parse {}: {}", path.display(), e)))?;
@@ -67,9 +73,13 @@ impl CellParser {
         // Extract standalone // comment blocks (not attached to cells)
         self.extract_standalone_doc_comments(source);
 
+        // Extract definition blocks (imports, types, helpers)
+        self.extract_definition_blocks(&file);
+
         Ok(ParseResult {
             code_cells: std::mem::take(&mut self.cells),
             markdown_cells: std::mem::take(&mut self.markdown_cells),
+            definition_cells: std::mem::take(&mut self.definition_cells),
         })
     }
 
@@ -396,6 +406,127 @@ impl CellParser {
                 i += 1;
             }
         }
+    }
+
+    /// Check if an item has the #[venus::hide] attribute.
+    fn has_hide_attribute(attrs: &[Attribute]) -> bool {
+        attrs.iter().any(|attr| {
+            let path = attr.path();
+            let segments: Vec<_> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+
+            // Match #[venus::hide] or #[hide] (if imported)
+            (segments.len() == 2 && segments[0] == "venus" && segments[1] == "hide")
+                || (segments.len() == 1 && segments[0] == "hide")
+        })
+    }
+
+    /// Extract definition blocks (imports, types, helper functions).
+    ///
+    /// Groups ALL consecutive definitions into a single block.
+    /// Definitions are split only by markdown cells or executable cells.
+    /// Blank lines within definitions do NOT split the block.
+    /// Skips items with #[venus::hide] attribute.
+    fn extract_definition_blocks(&mut self, file: &File) {
+        use syn::Item;
+
+        let mut current_block: Vec<String> = Vec::new();
+        let mut block_start_line: Option<usize> = None;
+        let mut block_end_line: usize = 0;
+
+        for item in &file.items {
+            // Check if this is a definition item (not executable cell or other)
+            let is_definition = matches!(
+                item,
+                Item::Use(_) | Item::Struct(_) | Item::Enum(_) | Item::Type(_) | Item::Fn(_)
+            );
+
+            // Skip items with #[venus::hide]
+            let has_hide = match item {
+                Item::Use(item_use) => Self::has_hide_attribute(&item_use.attrs),
+                Item::Struct(item_struct) => Self::has_hide_attribute(&item_struct.attrs),
+                Item::Enum(item_enum) => Self::has_hide_attribute(&item_enum.attrs),
+                Item::Type(item_type) => Self::has_hide_attribute(&item_type.attrs),
+                Item::Fn(item_fn) => {
+                    Self::has_hide_attribute(&item_fn.attrs)
+                        || Self::has_cell_attribute(&item_fn.attrs) // Also skip executable cells
+                }
+                _ => false,
+            };
+
+            if has_hide || !is_definition {
+                // This item breaks the definition block - flush any accumulated definitions
+                if !current_block.is_empty() {
+                    self.flush_definition_block(&mut current_block, block_start_line.unwrap(), block_end_line);
+                    block_start_line = None;
+                }
+                continue;
+            }
+
+            // Get the span and extract original source text (preserves formatting)
+            let span = match item {
+                Item::Use(u) => self.span_to_source_span(u.span()),
+                Item::Struct(s) => self.span_to_source_span(s.span()),
+                Item::Enum(e) => self.span_to_source_span(e.span()),
+                Item::Type(t) => self.span_to_source_span(t.span()),
+                Item::Fn(f) => self.span_to_source_span(f.span()),
+                _ => unreachable!(),
+            };
+
+            // Extract the original source text with proper formatting
+            let source_text = self.extract_source_text(span.start_line, span.end_line);
+
+            if block_start_line.is_none() {
+                block_start_line = Some(span.start_line);
+            }
+            block_end_line = span.end_line;
+
+            current_block.push(source_text);
+        }
+
+        // Flush any remaining block
+        if !current_block.is_empty() {
+            self.flush_definition_block(&mut current_block, block_start_line.unwrap(), block_end_line);
+        }
+    }
+
+    /// Extract source text between line numbers (preserves original formatting).
+    fn extract_source_text(&self, start_line: usize, end_line: usize) -> String {
+        let lines: Vec<&str> = self.source_code.lines().collect();
+
+        // Line numbers are 1-based, convert to 0-based indices
+        let start_idx = start_line.saturating_sub(1);
+        let end_idx = end_line; // end_line is inclusive in 1-based, so this works for 0-based slice
+
+        if start_idx >= lines.len() {
+            return String::new();
+        }
+
+        let end_idx = end_idx.min(lines.len());
+        lines[start_idx..end_idx].join("\n")
+    }
+
+    /// Flush accumulated definition block into a single DefinitionCell.
+    fn flush_definition_block(&mut self, block: &mut Vec<String>, start_line: usize, end_line: usize) {
+        use super::types::DefinitionType;
+
+        let combined_content = block.join("\n\n");
+
+        let definition_cell = DefinitionCell {
+            id: CellId::new(0), // Assigned later by GraphEngine
+            content: combined_content,
+            definition_type: DefinitionType::Import, // Generic type for combined blocks
+            span: SourceSpan {
+                start_line,
+                start_col: 0,
+                end_line,
+                end_col: 0,
+            },
+            source_file: self.source_file.clone(),
+            doc_comment: None, // Combined blocks don't have individual doc comments
+        };
+
+        self.definition_cells.push(definition_cell);
+        block.clear();
     }
 }
 

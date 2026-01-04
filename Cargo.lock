@@ -3183,6 +3183,7 @@ version = "0.1.0-beta.3"
 dependencies = [
  "image",
  "polars",
+ "rkyv",
  "serde",
  "serde_json",
  "venus-macros",

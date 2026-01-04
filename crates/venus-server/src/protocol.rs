@@ -435,6 +435,7 @@ pub enum ServerMessage {
 /// State of a single cell (code, markdown, or definition).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cell_type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum CellState {
     /// Code cell (executable function).
     Code {

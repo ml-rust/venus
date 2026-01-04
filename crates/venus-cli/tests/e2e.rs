@@ -3,6 +3,8 @@
 //! These tests verify that the CLI produces expected output
 //! when run against real notebook files.
 
+#![allow(deprecated)] // Allow deprecated Command::cargo_bin for tests
+
 use std::fs;
 use std::path::PathBuf;
 

@@ -359,6 +359,7 @@ impl CellParser {
                 // Check if the next non-empty line is code (struct, enum, fn, etc.)
                 // If so, this comment is attached to that code and should not be a markdown cell
                 let mut is_attached = false;
+                #[allow(clippy::needless_range_loop)]
                 for k in j..lines.len() {
                     let next_line = lines[k].trim();
                     if next_line.is_empty() {

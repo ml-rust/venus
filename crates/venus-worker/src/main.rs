@@ -266,7 +266,9 @@ fn process_ffi_result(
             }
 
             // Read display_len
-            let display_len = u64::from_le_bytes(raw_bytes[0..8].try_into().unwrap()) as usize;
+            let display_len_bytes: [u8; 8] = raw_bytes[0..8].try_into()
+                .map_err(|_| format!("Cell {} output has malformed display_len field", cell_name))?;
+            let display_len = u64::from_le_bytes(display_len_bytes) as usize;
             let display_end = 8 + display_len;
 
             if raw_bytes.len() < display_end + 8 {
@@ -274,7 +276,9 @@ fn process_ffi_result(
             }
 
             // Read widgets_len
-            let widgets_len = u64::from_le_bytes(raw_bytes[display_end..display_end + 8].try_into().unwrap()) as usize;
+            let widgets_len_bytes: [u8; 8] = raw_bytes[display_end..display_end + 8].try_into()
+                .map_err(|_| format!("Cell {} output has malformed widgets_len field", cell_name))?;
+            let widgets_len = u64::from_le_bytes(widgets_len_bytes) as usize;
             let widgets_start = display_end + 8;
             let widgets_end = widgets_start + widgets_len;
 

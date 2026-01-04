@@ -404,7 +404,13 @@ impl LinearExecutor {
                 }
 
                 // Read display_len
-                let display_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
+                let display_len_bytes: [u8; 8] = bytes[0..8].try_into().map_err(|_| {
+                    Error::Execution(format!(
+                        "Cell {} output has malformed display_len field",
+                        cell_name
+                    ))
+                })?;
+                let display_len = u64::from_le_bytes(display_len_bytes) as usize;
                 let display_end = 8 + display_len;
 
                 if bytes.len() < display_end + 8 {

@@ -134,9 +134,7 @@ function handleLspMessage(msg) {
  * Handle LSP notification.
  */
 function handleLspNotification(method, params) {
-    // Log all notifications to see what rust-analyzer is sending
-    console.log('[LSP] Notification:', method, params?.uri || '');
-
+    // Handle notifications from rust-analyzer (verbose logging removed to reduce console noise)
     switch (method) {
         case 'textDocument/publishDiagnostics':
             handleDiagnostics(params);
@@ -184,7 +182,6 @@ function handleLspShowMessage(params) {
         showToast(displayMessage, toastType);
     }
 
-    console.log('LSP message:', message);
 }
 
 /**
@@ -203,10 +200,6 @@ async function initializeLsp() {
         // Use the universe package Cargo.toml for proper dependency resolution
         const notebookDir = getNotebookDir();
         const universeCargoToml = `${notebookDir}/.venus/build/universe/Cargo.toml`;
-
-        console.log('[LSP] Notebook dir:', notebookDir);
-        console.log('[LSP] Universe Cargo.toml:', universeCargoToml);
-        console.log('[LSP] Using universe package for LSP analysis');
 
         const result = await sendLspRequest('initialize', {
             processId: null,
@@ -253,8 +246,6 @@ async function initializeLsp() {
         // Send initialized notification
         sendLspNotification('initialized', {});
 
-        console.log('[LSP] Initialized with capabilities:', result.capabilities);
-
         // Open the notebook document
         openNotebookDocument();
     } catch (e) {
@@ -275,9 +266,6 @@ function openNotebookDocument() {
     const notebookDir = getNotebookDir();
     const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
     const content = getCombinedSource();
-
-    console.log('[LSP] Opening virtual document:', virtualUri);
-    console.log('[LSP] Virtual document has', content.split('\n').length, 'lines');
 
     sendLspNotification('textDocument/didOpen', {
         textDocument: {
@@ -333,8 +321,6 @@ function notifyDocumentChange() {
     const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
     const content = getCombinedSource();
 
-    console.log('[LSP] Notifying document change with', content.split('\n').length, 'lines');
-
     sendLspNotification('textDocument/didChange', {
         textDocument: {
             uri: virtualUri,
@@ -351,9 +337,6 @@ function notifyDocumentChange() {
  * Maps LSP diagnostics to Monaco markers for each cell.
  */
 function handleDiagnostics(params) {
-    console.log('[LSP] Received diagnostics for URI:', params.uri);
-    console.log('[LSP] Diagnostic count:', params.diagnostics.length);
-
     // ONLY process diagnostics for the virtual document
     // Ignore diagnostics from other workspace files
     if (!state.notebookPath) {
@@ -362,18 +345,11 @@ function handleDiagnostics(params) {
     const notebookDir = getNotebookDir();
     const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
     if (params.uri !== virtualUri) {
-        console.log('[LSP] Ignoring diagnostics for non-notebook file:', params.uri);
         return;
     }
 
     if (!params.diagnostics || typeof monaco === 'undefined') {
         return;
-    }
-
-    // Log first few diagnostic positions for debugging
-    if (params.diagnostics.length > 0) {
-        console.log('[LSP] First diagnostic at line:', params.diagnostics[0].range.start.line,
-                    'message:', params.diagnostics[0].message.substring(0, 50));
     }
 
     // Group diagnostics by cell

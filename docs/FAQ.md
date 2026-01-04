@@ -22,10 +22,10 @@ Key features:
 **Installation:**
 
 ```bash
-cargo install venus-cli
+cargo install venus
 ```
 
-That's it! Venus is a single binary with no external dependencies.
+This installs both the `venus` and `venus-worker` binaries with no external dependencies.
 
 ## How do I use Venus?
 
@@ -57,14 +57,14 @@ See [Getting Started](getting-started.md) for a full tutorial.
 
 ## What's the difference between Venus and evcxr?
 
-| Feature             | Venus                                           | evcxr                            |
-| ------------------- | ----------------------------------------------- | -------------------------------- |
-| **Type**            | Reactive notebook                               | REPL (Read-Eval-Print Loop)      |
-| **Execution model** | Dependency graph with dirty tracking            | Sequential evaluation            |
-| **State**           | Preserved across hot-reloads                    | Lost on code changes             |
-| **Source format**   | `.rs` files (full LSP support)                  | Jupyter `.ipynb` or REPL         |
-| **Compilation**     | Cranelift (fast dev) + LLVM (optimized)         | Incremental rustc                |
-| **Use case**        | Data exploration, prototyping, visualization    | Interactive REPL, Jupyter kernel |
+| Feature             | Venus                                        | evcxr                            |
+| ------------------- | -------------------------------------------- | -------------------------------- |
+| **Type**            | Reactive notebook                            | REPL (Read-Eval-Print Loop)      |
+| **Execution model** | Dependency graph with dirty tracking         | Sequential evaluation            |
+| **State**           | Preserved across hot-reloads                 | Lost on code changes             |
+| **Source format**   | `.rs` files (full LSP support)               | Jupyter `.ipynb` or REPL         |
+| **Compilation**     | Cranelift (fast dev) + LLVM (optimized)      | Incremental rustc                |
+| **Use case**        | Data exploration, prototyping, visualization | Interactive REPL, Jupyter kernel |
 
 **When to use Venus:**
 
@@ -345,7 +345,7 @@ See [Deployment Guide](deployment.md) for details.
 
 ## Is Venus production-ready?
 
-Venus is currently in **beta** (0.1.0-beta.3):
+Venus is currently in **active development** (0.1.0):
 
 - ✅ Core features are stable and tested
 - ✅ APIs are mostly stable (see [STABILITY.md](../STABILITY.md))

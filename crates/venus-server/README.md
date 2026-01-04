@@ -15,7 +15,7 @@ This crate provides the web server backend for Venus's interactive notebook inte
 - **LSP integration** - Download and manage rust-analyzer
 - **Embedded frontend** - Serves the web UI (optional)
 
-This is an internal implementation crate used by `venus-cli`. Most users should use the CLI instead.
+This is an internal implementation crate used by the `venus` CLI. Most users should use the CLI instead.
 
 ## Features
 

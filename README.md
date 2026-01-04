@@ -52,7 +52,7 @@ Venus supports rich markdown cells with full GitHub Flavored Markdown syntax:
 
 ```bash
 # Install Venus
-cargo install venus-cli
+cargo install venus
 
 # Create a new notebook (adds to Cargo.toml for LSP support)
 venus new my_notebook

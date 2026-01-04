@@ -22,6 +22,7 @@ venus export notebook.rs
 ```
 
 This creates `notebook.html` containing:
+
 - All cell code and outputs
 - Markdown cells (rendered)
 - Execution results
@@ -99,7 +100,7 @@ WORKDIR /app
 COPY notebook.rs .
 
 # Install Venus
-RUN cargo install venus-cli
+RUN cargo install venus
 
 # Expose server port
 EXPOSE 8080
@@ -172,24 +173,27 @@ The Venus server exposes a WebSocket API at `/ws`. See the [API Reference](api.m
 **Minimal Example**:
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8080/ws');
+const ws = new WebSocket("ws://localhost:8080/ws");
 
 // Server sends initial state on connection
 ws.onmessage = (e) => {
   const msg = JSON.parse(e.data);
-  console.log('Server:', msg);
+  console.log("Server:", msg);
 };
 
 // Execute a cell
-ws.send(JSON.stringify({
-  type: 'execute_cell',
-  cell_id: 1
-}));
+ws.send(
+  JSON.stringify({
+    type: "execute_cell",
+    cell_id: 1,
+  })
+);
 ```
 
 ### Reference Implementation
 
 The built-in frontend is located at `crates/venus-server/src/frontend/`. You can use it as reference:
+
 - WebSocket client setup
 - State management
 - Monaco editor integration
@@ -198,6 +202,7 @@ The built-in frontend is located at `crates/venus-server/src/frontend/`. You can
 ### API Documentation
 
 See [API Reference](api.md) for:
+
 - Complete WebSocket protocol
 - REST endpoints
 - Message schemas
@@ -267,7 +272,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Venus
-        run: cargo install venus-cli
+        run: cargo install venus
 
       - name: Run Notebook
         run: venus run analysis.rs
@@ -288,7 +293,7 @@ jobs:
 # .github/workflows/scheduled-report.yml
 on:
   schedule:
-    - cron: '0 0 * * *'  # Daily at midnight
+    - cron: "0 0 * * *" # Daily at midnight
 
 jobs:
   report:
@@ -296,7 +301,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Venus
-        run: cargo install venus-cli
+        run: cargo install venus
       - name: Generate Report
         run: venus run daily_report.rs > report.txt
       - name: Send Email
@@ -321,6 +326,7 @@ venus sync notebook.rs
 ```
 
 Creates `notebook.ipynb` with:
+
 - All cells preserved
 - Cached outputs embedded
 - GitHub preview support
@@ -351,6 +357,7 @@ git push
 **Venus is designed for local development, testing, and learning environments ONLY.**
 
 Venus executes arbitrary Rust code with ZERO sandboxing or isolation:
+
 - ✅ Full filesystem access (can delete `/`, read `/etc/passwd`)
 - ✅ Full network access (can exfiltrate data)
 - ✅ Full process control (can spawn processes, fork bombs)
@@ -380,6 +387,7 @@ If you're building a cloud-based Rust notebook service, **YOU MUST PROVIDE ISOLA
 6. **User separation** - No shared state
 
 **Minimum Docker example**:
+
 ```bash
 docker run --rm \
   --network none \
@@ -398,6 +406,7 @@ See [SECURITY.md](../SECURITY.md) for comprehensive isolation examples.
 **Never run untrusted notebooks.** Only execute code you wrote or fully trust.
 
 Venus cells can:
+
 ```rust
 // Delete your files
 std::fs::remove_dir_all(std::env::home_dir());
@@ -457,6 +466,7 @@ Use Cranelift for development, LLVM for production builds.
 ### Server Resources
 
 Recommended specs for production:
+
 - **CPU**: 2+ cores
 - **RAM**: 2GB minimum, 4GB+ for large notebooks
 - **Disk**: 1GB for Venus + notebook outputs
@@ -464,6 +474,7 @@ Recommended specs for production:
 ### Scaling
 
 Current limitations:
+
 - Single notebook per server instance
 - No multi-user support
 - State is in-memory (lost on restart)
@@ -479,8 +490,9 @@ curl http://localhost:8080/health
 ```
 
 Response:
+
 ```json
-{"status":"ok","version":"0.1.0-beta.3"}
+{ "status": "ok", "version": "0.1.0" }
 ```
 
 ### Logs
@@ -500,11 +512,13 @@ docker logs -f container_name
 ### Server won't start
 
 **Check port availability**:
+
 ```bash
 lsof -i :8080
 ```
 
 **Check file permissions**:
+
 ```bash
 ls -l notebook.rs
 ```

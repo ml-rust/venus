@@ -6,18 +6,11 @@ members = [
     "crates/venus-core",
     "crates/venus-sync",
     "crates/venus-server",
-    "crates/venus-cli",
-    "crates/venus-worker",
 ]
-exclude = [
-    ".venus",
-    "examples/.venus",
-    "tests/.venus",
-    "*/.venus",
-]
+exclude = [".venus", "examples/.venus", "tests/.venus", "*/.venus"]
 
 [workspace.package]
-version = "0.1.0-beta.3"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.85.0"
 license = "Apache-2.0"
@@ -25,14 +18,19 @@ repository = "https://github.com/ml-rust/venus"
 
 [workspace.dependencies]
 # Internal crates
-venus = { path = "crates/venus", version = "0.1.0-beta.3" }
-venus-macros = { path = "crates/venus-macros", version = "0.1.0-beta.3" }
-venus-core = { path = "crates/venus-core", version = "0.1.0-beta.3" }
-venus-sync = { path = "crates/venus-sync", version = "0.1.0-beta.3" }
-venus-server = { path = "crates/venus-server", version = "0.1.0-beta.3" }
+venus = { path = "crates/venus", version = "0.1.0" }
+venus-macros = { path = "crates/venus-macros", version = "0.1.0" }
+venus-core = { path = "crates/venus-core", version = "0.1.0" }
+venus-sync = { path = "crates/venus-sync", version = "0.1.0" }
+venus-server = { path = "crates/venus-server", version = "0.1.0" }
 
 # Parsing and AST
-syn = { version = "2.0", features = ["full", "parsing", "visit", "extra-traits"] }
+syn = { version = "2.0", features = [
+    "full",
+    "parsing",
+    "visit",
+    "extra-traits",
+] }
 quote = "1.0"
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
 
@@ -42,7 +40,7 @@ petgraph = "0.8"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rkyv = "0.8"  # default features include bytecheck for validation
+rkyv = "0.8"                                       # default features include bytecheck for validation
 
 # Incremental computation
 salsa = "0.25"
@@ -52,15 +50,15 @@ libloading = "0.9"
 
 # Async runtime
 tokio = { version = "1.48", features = [
-    "macros",        # #[tokio::main]
+    "macros",          # #[tokio::main]
     "rt-multi-thread", # Multi-threaded runtime
-    "sync",          # Mutex, RwLock, oneshot, mpsc, broadcast
-    "net",           # TcpListener
-    "time",          # sleep, timeout
-    "fs",            # File operations
-    "process",       # Command
-    "io-util",       # AsyncWriteExt, AsyncReadExt, AsyncBufReadExt
-    "signal",        # ctrl_c()
+    "sync",            # Mutex, RwLock, oneshot, mpsc, broadcast
+    "net",             # TcpListener
+    "time",            # sleep, timeout
+    "fs",              # File operations
+    "process",         # Command
+    "io-util",         # AsyncWriteExt, AsyncReadExt, AsyncBufReadExt
+    "signal",          # ctrl_c()
 ] }
 
 # CLI

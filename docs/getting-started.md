@@ -7,7 +7,7 @@ This guide will help you install Venus and create your first notebook.
 Install Venus using Cargo:
 
 ```bash
-cargo install venus-cli
+cargo install venus
 ```
 
 ## Creating Your First Notebook

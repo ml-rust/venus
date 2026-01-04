@@ -2,7 +2,7 @@
 
 **Status**: This is a living document that will be updated based on user feedback.
 
-Venus is currently in beta. As users report issues, this guide will be expanded with solutions to common problems.
+Venus is currently in active development. As users report issues, this guide will be expanded with solutions to common problems.
 
 ---
 

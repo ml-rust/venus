@@ -126,7 +126,7 @@ Required isolation measures:
 
 ```dockerfile
 FROM rust:slim
-RUN cargo install venus-cli
+RUN cargo install venus
 RUN useradd -m -u 1000 notebook
 USER notebook
 WORKDIR /workspace

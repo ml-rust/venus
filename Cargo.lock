@@ -3105,40 +3105,33 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "venus"
-version = "0.1.0-beta.3"
-dependencies = [
- "image",
- "polars",
- "rkyv",
- "serde",
- "serde_json",
- "venus-macros",
-]
-
-[[package]]
-name = "venus-cli"
-version = "0.1.0-beta.3"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
  "dirs",
+ "image",
+ "libc",
+ "libloading",
+ "polars",
  "predicates",
  "rkyv",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "venus",
  "venus-core",
+ "venus-macros",
  "venus-server",
  "venus-sync",
 ]
 
 [[package]]
 name = "venus-core"
-version = "0.1.0-beta.3"
+version = "0.1.0"
 dependencies = [
  "fs2",
  "libc",
@@ -3162,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "venus-macros"
-version = "0.1.0-beta.3"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3171,7 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "venus-server"
-version = "0.1.0-beta.3"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3193,7 +3186,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "venus",
  "venus-core",
  "venus-sync",
  "windows-sys 0.59.0",
@@ -3201,7 +3193,7 @@ dependencies = [
 
 [[package]]
 name = "venus-sync"
-version = "0.1.0-beta.3"
+version = "0.1.0"
 dependencies = [
  "base64",
  "serde",
@@ -3209,22 +3201,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
- "venus-core",
-]
-
-[[package]]
-name = "venus-worker"
-version = "0.1.0-beta.3"
-dependencies = [
- "anyhow",
- "libc",
- "libloading",
- "rkyv",
- "serde",
- "serde_json",
- "tracing",
- "tracing-subscriber",
- "venus",
  "venus-core",
 ]
 

@@ -7,6 +7,7 @@ The Venus server exposes a WebSocket-based API for real-time notebook interactio
 **Architecture**: Venus provides a built-in web frontend for ease of use, but the server API is designed for custom frontends. Advanced users can build their own UIs using the documented protocol below.
 
 **Endpoints**:
+
 - `ws://localhost:8080/ws` - WebSocket for notebook operations
 - `ws://localhost:8080/lsp` - WebSocket for LSP (rust-analyzer) integration
 - `GET /health` - Health check
@@ -20,12 +21,14 @@ The Venus server exposes a WebSocket-based API for real-time notebook interactio
 **The Venus server API executes arbitrary Rust code received over WebSocket with NO sandboxing.**
 
 **For custom frontend developers:**
+
 - Deploy Venus server in **isolated environment** (container/VM)
 - **Never expose publicly** without authentication and isolation
 - Treat all notebook code as **potentially malicious**
 - **Provider responsibility**: YOU must secure the deployment - Venus provides no security
 
 Venus cells have full system access:
+
 - Can read/write/delete any file
 - Can make network requests
 - Can spawn processes
@@ -38,16 +41,16 @@ Venus cells have full system access:
 ### 1. Connect to WebSocket
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8080/ws');
+const ws = new WebSocket("ws://localhost:8080/ws");
 
 ws.onopen = () => {
-  console.log('Connected to Venus server');
+  console.log("Connected to Venus server");
   // Server automatically sends initial NotebookState on connection
 };
 
 ws.onmessage = (event) => {
   const message = JSON.parse(event.data);
-  console.log('Server message:', message);
+  console.log("Server message:", message);
 };
 ```
 
@@ -55,15 +58,19 @@ ws.onmessage = (event) => {
 
 ```javascript
 // Execute a cell
-ws.send(JSON.stringify({
-  type: 'execute_cell',
-  cell_id: 1
-}));
+ws.send(
+  JSON.stringify({
+    type: "execute_cell",
+    cell_id: 1,
+  })
+);
 
 // Get current state
-ws.send(JSON.stringify({
-  type: 'get_state'
-}));
+ws.send(
+  JSON.stringify({
+    type: "get_state",
+  })
+);
 ```
 
 ### 3. Receive Updates
@@ -75,13 +82,13 @@ ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
 
   switch (msg.type) {
-    case 'notebook_state':
+    case "notebook_state":
       updateNotebookUI(msg.cells, msg.execution_order);
       break;
-    case 'cell_completed':
+    case "cell_completed":
       displayCellOutput(msg.cell_id, msg.output);
       break;
-    case 'cell_error':
+    case "cell_error":
       showError(msg.cell_id, msg.error);
       break;
   }
@@ -95,10 +102,11 @@ ws.onmessage = (event) => {
 Health check endpoint.
 
 **Response**:
+
 ```json
 {
   "status": "ok",
-  "version": "0.1.0-beta.3"
+  "version": "0.1.0"
 }
 ```
 
@@ -113,6 +121,7 @@ Get current notebook state.
 Get dependency graph information.
 
 **Response**:
+
 ```json
 {
   "execution_order": [1, 2, 3, 4]
@@ -128,86 +137,107 @@ Messages sent from client to server. All messages must include a `type` field.
 #### Notebook Querying
 
 **GetState**
+
 ```json
 { "type": "get_state" }
 ```
+
 Request the complete notebook state.
 
 **GetGraph**
+
 ```json
 { "type": "get_graph" }
 ```
+
 Request the dependency graph.
 
 #### Cell Execution
 
 **ExecuteCell**
+
 ```json
 {
   "type": "execute_cell",
   "cell_id": 1
 }
 ```
+
 Execute a specific cell.
 
 **ExecuteAll**
+
 ```json
 { "type": "execute_all" }
 ```
+
 Execute all cells in dependency order.
 
 **ExecuteDirty**
+
 ```json
 { "type": "execute_dirty" }
 ```
+
 Execute only cells marked as dirty (needing re-execution).
 
 **Interrupt**
+
 ```json
 { "type": "interrupt" }
 ```
+
 Abort currently running execution.
 
 #### Cell Management
 
 **InsertCell**
+
 ```json
 {
   "type": "insert_cell",
-  "after_cell_id": 2  // Optional: null for end
+  "after_cell_id": 2 // Optional: null for end
 }
 ```
+
 Insert a new code cell.
 
 **DeleteCell**
+
 ```json
 {
   "type": "delete_cell",
   "cell_id": 3
 }
 ```
+
 Delete a cell.
 
 **DuplicateCell**
+
 ```json
 {
   "type": "duplicate_cell",
   "cell_id": 1
 }
 ```
+
 Duplicate an existing cell.
 
 **MoveCell**
+
 ```json
 {
   "type": "move_cell",
   "cell_id": 2,
-  "direction": "up"  // "up" or "down"
+  "direction": "up" // "up" or "down"
 }
 ```
+
 Move a cell up or down in source order.
 
 **RenameCell**
+
 ```json
 {
   "type": "rename_cell",
@@ -215,9 +245,11 @@ Move a cell up or down in source order.
   "new_display_name": "My Cell"
 }
 ```
+
 Rename a cell's display name.
 
 **CellEdit**
+
 ```json
 {
   "type": "cell_edit",
@@ -225,20 +257,23 @@ Rename a cell's display name.
   "source": "pub fn new_code() -> String { ... }"
 }
 ```
+
 Edit a cell's source code (marks cell as dirty).
 
 #### Markdown Cells
 
 **InsertMarkdownCell**
+
 ```json
 {
   "type": "insert_markdown_cell",
   "content": "# My Markdown\n\nSome content",
-  "after_cell_id": null  // Optional
+  "after_cell_id": null // Optional
 }
 ```
 
 **EditMarkdownCell**
+
 ```json
 {
   "type": "edit_markdown_cell",
@@ -248,6 +283,7 @@ Edit a cell's source code (marks cell as dirty).
 ```
 
 **DeleteMarkdownCell**
+
 ```json
 {
   "type": "delete_markdown_cell",
@@ -256,6 +292,7 @@ Edit a cell's source code (marks cell as dirty).
 ```
 
 **MoveMarkdownCell**
+
 ```json
 {
   "type": "move_markdown_cell",
@@ -269,16 +306,18 @@ Edit a cell's source code (marks cell as dirty).
 Definition cells contain types, imports, and helper functions compiled into the universe.
 
 **InsertDefinitionCell**
+
 ```json
 {
   "type": "insert_definition_cell",
   "content": "struct MyStruct { field: i32 }",
-  "definition_type": "struct",  // "struct", "enum", "trait", "use", "impl", "const", "static", "type_alias", "fn"
+  "definition_type": "struct", // "struct", "enum", "trait", "use", "impl", "const", "static", "type_alias", "fn"
   "after_cell_id": null
 }
 ```
 
 **EditDefinitionCell**
+
 ```json
 {
   "type": "edit_definition_cell",
@@ -288,6 +327,7 @@ Definition cells contain types, imports, and helper functions compiled into the 
 ```
 
 **DeleteDefinitionCell**
+
 ```json
 {
   "type": "delete_definition_cell",
@@ -296,6 +336,7 @@ Definition cells contain types, imports, and helper functions compiled into the 
 ```
 
 **MoveDefinitionCell**
+
 ```json
 {
   "type": "move_definition_cell",
@@ -307,64 +348,78 @@ Definition cells contain types, imports, and helper functions compiled into the 
 #### Interactive Widgets
 
 **WidgetUpdate**
+
 ```json
 {
   "type": "widget_update",
   "cell_id": 2,
   "widget_id": "my_slider",
   "value": {
-    "Float": 0.75  // Or: {"Int": 42}, {"String": "hello"}, {"Bool": true}
+    "Float": 0.75 // Or: {"Int": 42}, {"String": "hello"}, {"Bool": true}
   }
 }
 ```
+
 Update a widget value. Does NOT trigger re-execution automatically.
 
 #### Output History
 
 **SelectHistory**
+
 ```json
 {
   "type": "select_history",
   "cell_id": 1,
-  "index": 2  // 0 = oldest
+  "index": 2 // 0 = oldest
 }
 ```
+
 Select a previous output from cell history (for cells that have been executed multiple times).
 
 #### Undo/Redo
 
 **Undo**
+
 ```json
 { "type": "undo" }
 ```
+
 Undo the last cell management operation.
 
 **Redo**
+
 ```json
 { "type": "redo" }
 ```
+
 Redo the last undone operation.
 
 #### Kernel Management
 
 **RestartKernel**
+
 ```json
 { "type": "restart_kernel" }
 ```
+
 Kill worker process pool, clear memory state, preserve source code.
 
 **ClearOutputs**
+
 ```json
 { "type": "clear_outputs" }
 ```
+
 Clear all cell outputs without restarting.
 
 #### Notebook Export
 
 **Sync**
+
 ```json
 { "type": "sync" }
 ```
+
 Export notebook to `.ipynb` format for GitHub preview.
 
 ### Server Messages
@@ -374,6 +429,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 #### Notebook State
 
 **NotebookState**
+
 ```json
 {
   "type": "notebook_state",
@@ -388,8 +444,10 @@ Messages sent from server to clients. Server automatically broadcasts state chan
       "description": "Doc comment",
       "return_type": "String",
       "dependencies": ["other_cell"],
-      "status": "idle",  // "idle", "running", "completed", "error"
-      "output": { /* CellOutput */ },
+      "status": "idle", // "idle", "running", "completed", "error"
+      "output": {
+        /* CellOutput */
+      },
       "dirty": false
     },
     {
@@ -415,6 +473,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 #### Execution Status
 
 **CellStarted**
+
 ```json
 {
   "type": "cell_started",
@@ -423,6 +482,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **CellCompleted**
+
 ```json
 {
   "type": "cell_completed",
@@ -446,6 +506,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **CellError**
+
 ```json
 {
   "type": "cell_error",
@@ -461,6 +522,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **CompileError**
+
 ```json
 {
   "type": "compile_error",
@@ -479,16 +541,18 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **ExecutionAborted**
+
 ```json
 {
   "type": "execution_aborted",
-  "cell_id": 1  // Optional
+  "cell_id": 1 // Optional
 }
 ```
 
 #### Graph Updates
 
 **GraphUpdated**
+
 ```json
 {
   "type": "graph_updated",
@@ -496,18 +560,23 @@ Messages sent from server to clients. Server automatically broadcasts state chan
     { "from": 2, "to": 1 },
     { "from": 3, "to": 1 }
   ],
-  "levels": [[2, 3], [1]]  // Parallel execution levels
+  "levels": [[2, 3], [1]] // Parallel execution levels
 }
 ```
 
 #### File Watching
 
 **FileChanged**
+
 ```json
 {
   "type": "file_changed",
   "modified_cells": [1, 2],
-  "added_cells": [{ /* CellState */ }],
+  "added_cells": [
+    {
+      /* CellState */
+    }
+  ],
   "removed_cells": [5]
 }
 ```
@@ -515,15 +584,17 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 #### Operation Results
 
 **CellInserted** / **CellDeleted** / **CellDuplicated** / **CellMoved** / **CellRenamed**
+
 ```json
 {
   "type": "cell_inserted",
   "cell_id": 10,
-  "error": null  // or "Error message" if failed
+  "error": null // or "Error message" if failed
 }
 ```
 
 **MarkdownCellInserted** / **MarkdownCellEdited** / **MarkdownCellDeleted** / **MarkdownCellMoved**
+
 ```json
 {
   "type": "markdown_cell_inserted",
@@ -533,16 +604,18 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **DefinitionCellInserted** / **DefinitionCellEdited** / **DefinitionCellDeleted** / **DefinitionCellMoved**
+
 ```json
 {
   "type": "definition_cell_edited",
   "cell_id": 3,
   "error": null,
-  "dirty_cells": [1, 2]  // Cells affected by definition change
+  "dirty_cells": [1, 2] // Cells affected by definition change
 }
 ```
 
 **UndoResult** / **RedoResult**
+
 ```json
 {
   "type": "undo_result",
@@ -553,6 +626,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **UndoRedoState**
+
 ```json
 {
   "type": "undo_redo_state",
@@ -564,18 +638,22 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **HistorySelected**
+
 ```json
 {
   "type": "history_selected",
   "cell_id": 1,
   "index": 2,
   "count": 5,
-  "output": { /* CellOutput */ },
-  "dirty_cells": [2, 3]  // Cells now needing re-execution
+  "output": {
+    /* CellOutput */
+  },
+  "dirty_cells": [2, 3] // Cells now needing re-execution
 }
 ```
 
 **KernelRestarted**
+
 ```json
 {
   "type": "kernel_restarted",
@@ -584,6 +662,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **OutputsCleared**
+
 ```json
 {
   "type": "outputs_cleared",
@@ -592,6 +671,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **SyncCompleted**
+
 ```json
 {
   "type": "sync_completed",
@@ -600,6 +680,7 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ```
 
 **Error**
+
 ```json
 {
   "type": "error",
@@ -610,25 +691,32 @@ Messages sent from server to clients. Server automatically broadcasts state chan
 ## Type Definitions
 
 ### CellId
+
 Integer identifier for cells. Unique within a notebook.
 
 ### CellStatus
+
 Enum: `"idle"`, `"running"`, `"completed"`, `"error"`
 
 ### MoveDirection
+
 Enum: `"up"`, `"down"`
 
 ### DefinitionType
+
 Enum: `"struct"`, `"enum"`, `"trait"`, `"use"`, `"impl"`, `"const"`, `"static"`, `"type_alias"`, `"fn"`
 
 ### WidgetValue
+
 Tagged union:
+
 - `{"Int": 42}`
 - `{"Float": 3.14}`
 - `{"String": "hello"}`
 - `{"Bool": true}`
 
 ### CellOutput
+
 ```typescript
 {
   display: string,       // Formatted output for display
@@ -637,6 +725,7 @@ Tagged union:
 ```
 
 ### WidgetDef
+
 ```typescript
 {
   id: string,
@@ -662,32 +751,35 @@ Tagged union:
 ```html
 <!DOCTYPE html>
 <html>
-<head><title>Venus Client</title></head>
-<body>
-  <h1>Custom Venus Frontend</h1>
-  <div id="cells"></div>
-  <button onclick="executeAll()">Execute All</button>
+  <head>
+    <title>Venus Client</title>
+  </head>
+  <body>
+    <h1>Custom Venus Frontend</h1>
+    <div id="cells"></div>
+    <button onclick="executeAll()">Execute All</button>
 
-  <script>
-    const ws = new WebSocket('ws://localhost:8080/ws');
-    let cells = [];
+    <script>
+      const ws = new WebSocket("ws://localhost:8080/ws");
+      let cells = [];
 
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
 
-      if (msg.type === 'notebook_state') {
-        cells = msg.cells;
-        renderCells();
-      } else if (msg.type === 'cell_completed') {
-        updateCellOutput(msg.cell_id, msg.output);
-      }
-    };
+        if (msg.type === "notebook_state") {
+          cells = msg.cells;
+          renderCells();
+        } else if (msg.type === "cell_completed") {
+          updateCellOutput(msg.cell_id, msg.output);
+        }
+      };
 
-    function renderCells() {
-      const container = document.getElementById('cells');
-      container.innerHTML = cells.map(cell => {
-        if (cell.cell_type === 'code') {
-          return `
+      function renderCells() {
+        const container = document.getElementById("cells");
+        container.innerHTML = cells
+          .map((cell) => {
+            if (cell.cell_type === "code") {
+              return `
             <div class="cell">
               <h3>${cell.display_name}</h3>
               <pre>${cell.source}</pre>
@@ -695,27 +787,28 @@ Tagged union:
               <div id="output-${cell.id}"></div>
             </div>
           `;
-        }
-        return '';
-      }).join('');
-    }
-
-    function executeCell(cellId) {
-      ws.send(JSON.stringify({ type: 'execute_cell', cell_id: cellId }));
-    }
-
-    function executeAll() {
-      ws.send(JSON.stringify({ type: 'execute_all' }));
-    }
-
-    function updateCellOutput(cellId, output) {
-      const div = document.getElementById(`output-${cellId}`);
-      if (div && output) {
-        div.textContent = output.display;
+            }
+            return "";
+          })
+          .join("");
       }
-    }
-  </script>
-</body>
+
+      function executeCell(cellId) {
+        ws.send(JSON.stringify({ type: "execute_cell", cell_id: cellId }));
+      }
+
+      function executeAll() {
+        ws.send(JSON.stringify({ type: "execute_all" }));
+      }
+
+      function updateCellOutput(cellId, output) {
+        const div = document.getElementById(`output-${cellId}`);
+        if (div && output) {
+          div.textContent = output.display;
+        }
+      }
+    </script>
+  </body>
 </html>
 ```
 
@@ -730,11 +823,12 @@ Tagged union:
 
 ## API Stability
 
-**Current Status**: Beta (0.1.x)
+**Current Status**: Active Development (0.1.x)
 
 The WebSocket protocol is stabilizing but may change before 1.0. Breaking changes will be noted in release notes.
 
 **Future Plans**:
+
 - Additional REST endpoints for stateless operations
 - Batch execution API
 - Authentication/authorization

@@ -17,7 +17,7 @@ This crate handles bidirectional conversion between Venus's native `.rs` noteboo
 - Markdown cell support
 - Image and rich output embedding
 
-This is an internal implementation crate used by `venus-cli`. Most users don't need to use this directly.
+This is an internal implementation crate used by the `venus` CLI. Most users don't need to use this directly.
 
 ## Documentation
 

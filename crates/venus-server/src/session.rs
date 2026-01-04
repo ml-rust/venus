@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{RwLock, broadcast};
-use venus::widgets::{WidgetDef, WidgetValue};
+use venus_core::widgets::{WidgetDef, WidgetValue};
 use venus_core::compile::{
     CellCompiler, CompilationResult, CompilerConfig, ToolchainManager, UniverseBuilder,
 };

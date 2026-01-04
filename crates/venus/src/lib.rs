@@ -54,7 +54,9 @@
 pub use venus_macros::cell;
 
 pub mod render;
-pub mod widgets;
+
+// Re-export widgets from venus-core (moved there to break circular dependency)
+pub use venus_core::widgets;
 
 pub mod prelude {
     //! Common imports for Venus notebooks.

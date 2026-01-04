@@ -5,12 +5,45 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Reactive notebook environment for Rust"
+include = [
+    "src/**/*",
+    "cli/**/*",
+    "worker/**/*",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE*",
+]
+
+# CLI binaries - users can `cargo install venus` to get both
+[[bin]]
+name = "venus"
+path = "cli/src/main.rs"
+required-features = ["cli"]
+
+[[bin]]
+name = "venus-worker"
+path = "worker/src/main.rs"
+required-features = ["cli"]
 
 [dependencies]
+# Core library dependencies (always available)
 venus-macros.workspace = true
+venus-core.workspace = true  # For widgets re-export
 serde.workspace = true
 serde_json.workspace = true
 rkyv.workspace = true
+
+# Binary dependencies (optional, enabled by 'cli' feature, excluding venus-core which is always needed)
+venus-sync = { workspace = true, optional = true }
+venus-server = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
 
 # Optional rich output integrations
 polars = { version = "0.52", optional = true, default-features = false, features = [
@@ -22,11 +55,29 @@ image = { version = "0.25", optional = true, default-features = false, features 
   "jpeg",
 ] }
 
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.20"
+
 [features]
-default = []
+default = ["cli"]
+# CLI binaries and their dependencies
+cli = [
+  "dep:venus-sync",
+  "dep:venus-server",
+  "dep:clap",
+  "dep:tokio",
+  "dep:anyhow",
+  "dep:tracing",
+  "dep:tracing-subscriber",
+  "dep:dirs",
+  "dep:libloading",
+  "dep:libc",
+]
 # Enable polars DataFrame rendering (HTML tables)
 polars = ["dep:polars"]
 # Enable image rendering (PNG output)
 image = ["dep:image"]
 # All optional integrations
-full = ["polars", "image"]
+full = ["cli", "polars", "image"]

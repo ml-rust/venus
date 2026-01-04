@@ -38,6 +38,7 @@ pub mod ipc;
 pub mod paths;
 pub mod salsa_db;
 pub mod state;
+pub mod widgets;
 
 pub use error::{Error, Result};
 pub use paths::NotebookDirs;

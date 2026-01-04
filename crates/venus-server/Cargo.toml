@@ -11,7 +11,6 @@ default = ["embedded-frontend"]
 embedded-frontend = ["dep:rust-embed", "dep:mime_guess"]
 
 [dependencies]
-venus.workspace = true
 venus-core.workspace = true
 venus-sync.workspace = true
 

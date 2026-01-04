@@ -8,15 +8,29 @@ Main crate for Venus - a reactive notebook environment for Rust.
 
 ## Overview
 
-This crate provides the core `#[venus::cell]` macro and the `Render` trait for defining notebook cells and custom output rendering.
+This crate provides:
+- The core `#[venus::cell]` macro for defining notebook cells
+- The `Render` trait for custom output rendering
+- Interactive widgets (sliders, text inputs, checkboxes, dropdowns)
+- CLI binaries (`venus` and `venus-worker`) when installed with `cargo install venus`
 
-## Usage
+## Installation
+
+**As a CLI tool** (recommended for most users):
+
+```bash
+cargo install venus
+```
+
+This installs both the `venus` and `venus-worker` binaries.
+
+**As a library** (for embedding in other projects):
 
 Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-venus = "x.x"
+venus = { version = "x.x", default-features = false }
 ```
 
 ## Example
@@ -39,9 +53,10 @@ pub fn doubled(number: &i32) -> i32 {
 
 ## Features
 
+- `cli` (default) - Include CLI binaries and their dependencies
 - `polars` - Enable DataFrame rendering support
 - `image` - Enable image rendering support
-- `full` - Enable all optional features
+- `full` - Enable all optional features (cli, polars, image)
 
 ## Documentation
 

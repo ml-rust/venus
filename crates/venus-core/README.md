@@ -16,7 +16,7 @@ This crate provides the internal engine that powers Venus notebooks:
 - **Execution** - Cell execution and hot-reload with process isolation
 - **Incremental computation** - Powered by salsa for efficient re-execution
 
-This is an internal implementation crate. Most users should use the `venus` or `venus-cli` crates instead.
+This is an internal implementation crate. Most users should use the `venus` crate instead.
 
 ## Architecture
 

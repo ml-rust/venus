@@ -25,7 +25,7 @@ fn test_all_client_messages_serialize() {
         ClientMessage::WidgetUpdate {
             cell_id: CellId::new(1),
             widget_id: "slider1".to_string(),
-            value: venus::widgets::WidgetValue::Number(42.0),
+            value: venus_core::widgets::WidgetValue::Number(42.0),
         },
         ClientMessage::SelectHistory {
             cell_id: CellId::new(1),
@@ -316,7 +316,7 @@ fn test_cell_status_serialization() {
 
 #[test]
 fn test_cell_output_with_widgets() {
-    use venus::widgets::WidgetDef;
+    use venus_core::widgets::WidgetDef;
 
     let output = CellOutput {
         text: Some("Result: 42".to_string()),

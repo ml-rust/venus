@@ -1,20 +1,20 @@
-# venus-cli
+# venus CLI
 
-[![Crates.io](https://img.shields.io/crates/v/venus-cli.svg)](https://crates.io/crates/venus-cli)
-[![Documentation](https://docs.rs/venus-cli/badge.svg)](https://docs.rs/venus-cli)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/ml-rust/venus/blob/main/LICENSE)
-
-CLI for Venus reactive notebook environment.
+Command-line interface for Venus reactive notebook environment.
 
 ## Overview
 
-Command-line interface for working with Venus notebooks.
+This CLI is bundled with the `venus` crate and is **not** published separately to crates.io.
 
 ## Installation
 
 ```bash
-cargo install venus-cli
+cargo install venus
 ```
+
+This installs both binaries:
+- `venus` - Main CLI tool
+- `venus-worker` - Worker process for isolated cell execution
 
 ## Quick Start
 

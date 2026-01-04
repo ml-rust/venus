@@ -32,10 +32,10 @@ cargo --version
 ## Install Venus
 
 ```bash
-cargo install venus-cli
+cargo install venus
 ```
 
-This compiles and installs the `venus` binary to `~/.cargo/bin/`.
+This compiles and installs the `venus` and `venus-worker` binaries to `~/.cargo/bin/`.
 
 Verify installation:
 ```bash
@@ -101,10 +101,10 @@ rustup update
 
 ### Compilation fails
 
-If `cargo install venus-cli` fails:
+If `cargo install venus` fails:
 1. Update Rust: `rustup update`
 2. Check you have enough memory (at least 2GB RAM)
-3. Try with fewer parallel jobs: `cargo install venus-cli -j 2`
+3. Try with fewer parallel jobs: `cargo install venus -j 2`
 
 ## Platform-Specific Notes
 
@@ -126,7 +126,7 @@ Works on both Intel and Apple Silicon (M1/M2/M3) natively.
 
 To update Venus to the latest version:
 ```bash
-cargo install venus-cli --force
+cargo install venus --force
 ```
 
 ## Further Documentation

@@ -8,7 +8,7 @@ Venus follows **Semantic Versioning (SemVer)** for version numbers: `MAJOR.MINOR
 
 **Before 1.0.0:**
 
-- Venus is in beta (0.x.y versions)
+- Venus is in active development (0.x.y versions)
 - Breaking changes may occur in minor versions (0.x.0)
 - We will document all breaking changes in release notes
 
@@ -51,7 +51,7 @@ These APIs are intended for end users writing notebooks and are considered **sta
 
 ### ⚠️ Tier 2: Internal APIs (Unstable)
 
-**Crate**: `venus-core`, `venus-server`, `venus-cli`, `venus-sync`
+**Crate**: `venus-core`, `venus-server`, `venus-sync`
 
 These APIs are internal implementation details and are **UNSTABLE**:
 
@@ -151,7 +151,7 @@ No deprecation warnings. Internal APIs may change or be removed immediately.
 
 ## Version Support
 
-### Current version: 0.x (Beta)
+### Current version: 0.x (Active Development)
 
 - **Active development**: New features, breaking changes allowed
 - **Bug fixes**: Patch releases for critical bugs

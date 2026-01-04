@@ -236,6 +236,51 @@ async fn send_message(
     }
 }
 
+/// Generic handler for cell operations following the DRY principle.
+///
+/// This eliminates code duplication across markdown, definition, and future cell types.
+/// All cell operations follow the same pattern:
+/// 1. Execute the operation on the session
+/// 2. Send response message to the requesting client
+/// 3. Broadcast updated state and undo/redo state to all clients (if successful)
+///
+/// # Arguments
+/// * `session` - Mutable reference to the notebook session
+/// * `operation` - Closure that performs the cell operation, returning Result<T>
+/// * `response_constructor` - Function that constructs the appropriate ServerMessage from the result
+/// * `sender` - WebSocket sender for client response
+async fn handle_cell_operation<T, F, R>(
+    session: &mut NotebookSession,
+    operation: F,
+    response_constructor: R,
+    sender: &Arc<tokio::sync::Mutex<futures::stream::SplitSink<WebSocket, Message>>>,
+) where
+    F: FnOnce(&mut NotebookSession) -> crate::error::ServerResult<T>,
+    R: FnOnce(Result<T, String>) -> ServerMessage,
+{
+    let result = operation(session);
+
+    // Convert Result<T, ServerError> to Result<T, String> for the response constructor
+    let response = match result {
+        Ok(value) => {
+            let msg = response_constructor(Ok(value));
+            send_message(sender, &msg).await;
+
+            // Broadcast updated state and undo/redo state to all clients
+            let state_msg = session.get_state();
+            session.broadcast(state_msg);
+            let undo_state = session.get_undo_redo_state();
+            session.broadcast(undo_state);
+        }
+        Err(e) => {
+            let msg = response_constructor(Err(e.to_string()));
+            send_message(sender, &msg).await;
+        }
+    };
+
+    response
+}
+
 /// Handle a client message.
 async fn handle_client_message(
     msg: ClientMessage,
@@ -700,11 +745,12 @@ async fn handle_client_message(
         ClientMessage::InsertMarkdownCell { content, after_cell_id } => {
             let mut session = state.session.write().await;
 
-            match session.insert_markdown_cell(content, after_cell_id) {
-                Ok(()) => {
+            handle_cell_operation(
+                &mut session,
+                |s| {
+                    s.insert_markdown_cell(content, after_cell_id)?;
                     // Find the newly inserted markdown cell by looking at the last one
-                    // (insertion adds it to the end of the markdown_cells vec)
-                    let new_cell_id = session.cell_states()
+                    let new_cell_id = s.cell_states()
                         .iter()
                         .filter_map(|(id, state)| {
                             if matches!(state, CellState::Markdown { .. }) {
@@ -715,104 +761,132 @@ async fn handle_client_message(
                         })
                         .last()
                         .unwrap_or(CellId::new(0));
-
-                    // Send confirmation
-                    send_message(sender, &ServerMessage::MarkdownCellInserted {
-                        cell_id: new_cell_id,
+                    Ok(new_cell_id)
+                },
+                |result| match result {
+                    Ok(cell_id) => ServerMessage::MarkdownCellInserted {
+                        cell_id,
                         error: None,
-                    }).await;
-
-                    // Broadcast updated state and undo/redo state to all clients
-                    let state_msg = session.get_state();
-                    session.broadcast(state_msg);
-                    let undo_state = session.get_undo_redo_state();
-                    session.broadcast(undo_state);
-                }
-                Err(e) => {
-                    send_message(sender, &ServerMessage::MarkdownCellInserted {
+                    },
+                    Err(e) => ServerMessage::MarkdownCellInserted {
                         cell_id: CellId::new(0),
-                        error: Some(e.to_string()),
-                    }).await;
-                }
-            }
+                        error: Some(e),
+                    },
+                },
+                sender,
+            ).await;
         }
 
         ClientMessage::EditMarkdownCell { cell_id, new_content } => {
             let mut session = state.session.write().await;
 
-            match session.edit_markdown_cell(cell_id, new_content) {
-                Ok(()) => {
-                    // Send confirmation
-                    send_message(sender, &ServerMessage::MarkdownCellEdited {
-                        cell_id,
-                        error: None,
-                    }).await;
-
-                    // Broadcast updated state and undo/redo state to all clients
-                    let state_msg = session.get_state();
-                    session.broadcast(state_msg);
-                    let undo_state = session.get_undo_redo_state();
-                    session.broadcast(undo_state);
-                }
-                Err(e) => {
-                    send_message(sender, &ServerMessage::MarkdownCellEdited {
-                        cell_id,
-                        error: Some(e.to_string()),
-                    }).await;
-                }
-            }
+            handle_cell_operation(
+                &mut session,
+                |s| s.edit_markdown_cell(cell_id, new_content),
+                |result| ServerMessage::MarkdownCellEdited {
+                    cell_id,
+                    error: result.err(),
+                },
+                sender,
+            ).await;
         }
 
         ClientMessage::DeleteMarkdownCell { cell_id } => {
             let mut session = state.session.write().await;
 
-            match session.delete_markdown_cell(cell_id) {
-                Ok(()) => {
-                    // Send confirmation
-                    send_message(sender, &ServerMessage::MarkdownCellDeleted {
-                        cell_id,
-                        error: None,
-                    }).await;
-
-                    // Broadcast updated state and undo/redo state to all clients
-                    let state_msg = session.get_state();
-                    session.broadcast(state_msg);
-                    let undo_state = session.get_undo_redo_state();
-                    session.broadcast(undo_state);
-                }
-                Err(e) => {
-                    send_message(sender, &ServerMessage::MarkdownCellDeleted {
-                        cell_id,
-                        error: Some(e.to_string()),
-                    }).await;
-                }
-            }
+            handle_cell_operation(
+                &mut session,
+                |s| s.delete_markdown_cell(cell_id),
+                |result| ServerMessage::MarkdownCellDeleted {
+                    cell_id,
+                    error: result.err(),
+                },
+                sender,
+            ).await;
         }
 
         ClientMessage::MoveMarkdownCell { cell_id, direction } => {
             let mut session = state.session.write().await;
 
-            match session.move_markdown_cell(cell_id, direction) {
-                Ok(()) => {
-                    // Send confirmation
-                    send_message(sender, &ServerMessage::MarkdownCellMoved {
+            handle_cell_operation(
+                &mut session,
+                |s| s.move_markdown_cell(cell_id, direction),
+                |result| ServerMessage::MarkdownCellMoved {
+                    cell_id,
+                    error: result.err(),
+                },
+                sender,
+            ).await;
+        }
+
+        ClientMessage::InsertDefinitionCell { content, definition_type, after_cell_id } => {
+            let mut session = state.session.write().await;
+
+            handle_cell_operation(
+                &mut session,
+                |s| s.insert_definition_cell(content, definition_type, after_cell_id),
+                |result| match result {
+                    Ok(cell_id) => ServerMessage::DefinitionCellInserted {
                         cell_id,
                         error: None,
-                    }).await;
+                    },
+                    Err(e) => ServerMessage::DefinitionCellInserted {
+                        cell_id: CellId::new(0),
+                        error: Some(e),
+                    },
+                },
+                sender,
+            ).await;
+        }
 
-                    // Broadcast updated state and undo/redo state to all clients
-                    let state_msg = session.get_state();
-                    session.broadcast(state_msg);
-                    let undo_state = session.get_undo_redo_state();
-                    session.broadcast(undo_state);
-                }
-                Err(e) => {
-                    send_message(sender, &ServerMessage::MarkdownCellMoved {
+        ClientMessage::EditDefinitionCell { cell_id, new_content } => {
+            let mut session = state.session.write().await;
+
+            handle_cell_operation(
+                &mut session,
+                |s| s.edit_definition_cell(cell_id, new_content),
+                |result| match result {
+                    Ok(dirty_cells) => ServerMessage::DefinitionCellEdited {
                         cell_id,
-                        error: Some(e.to_string()),
-                    }).await;
-                }
-            }
+                        error: None,
+                        dirty_cells,
+                    },
+                    Err(e) => ServerMessage::DefinitionCellEdited {
+                        cell_id,
+                        error: Some(e),
+                        dirty_cells: vec![],
+                    },
+                },
+                sender,
+            ).await;
+        }
+
+        ClientMessage::DeleteDefinitionCell { cell_id } => {
+            let mut session = state.session.write().await;
+
+            handle_cell_operation(
+                &mut session,
+                |s| s.delete_definition_cell(cell_id),
+                |result| ServerMessage::DefinitionCellDeleted {
+                    cell_id,
+                    error: result.err(),
+                },
+                sender,
+            ).await;
+        }
+
+        ClientMessage::MoveDefinitionCell { cell_id, direction } => {
+            let mut session = state.session.write().await;
+
+            handle_cell_operation(
+                &mut session,
+                |s| s.move_definition_cell(cell_id, direction),
+                |result| ServerMessage::DefinitionCellMoved {
+                    cell_id,
+                    error: result.err(),
+                },
+                sender,
+            ).await;
         }
     }
 }

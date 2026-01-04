@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::error::{Error, Result};
+use crate::graph::DefinitionCell;
 
 use super::dependency_parser::{DependencyParser, ExternalDependency};
 use super::toolchain::ToolchainManager;
@@ -18,7 +19,17 @@ pub struct UniverseBuilder {
     /// Compiler configuration
     config: CompilerConfig,
 
-    /// Toolchain manager (reserved for future LLVM compilation options)
+    /// Toolchain manager (reserved for future LLVM compilation options).
+    ///
+    /// Currently unused but intentionally preserved to avoid breaking API changes
+    /// when LLVM backend support is added. The universe is currently built using
+    /// Cargo/rustc, but future versions may support direct LLVM compilation for
+    /// optimization control and faster compilation times.
+    ///
+    /// Keeping this field now prevents:
+    /// - Breaking API changes to `UniverseBuilder::new()`
+    /// - Re-threading toolchain manager through the codebase later
+    /// - Inconsistency with cell compilation (which does use toolchain)
     #[allow(dead_code)]
     toolchain: ToolchainManager,
 
@@ -27,165 +38,41 @@ pub struct UniverseBuilder {
 
     /// User-defined type definitions extracted from notebook
     type_definitions: String,
+
+    /// Path to workspace Cargo.toml (for copying dependencies)
+    workspace_cargo_toml: Option<PathBuf>,
 }
 
 impl UniverseBuilder {
     /// Create a new universe builder.
-    pub fn new(config: CompilerConfig, toolchain: ToolchainManager) -> Self {
+    pub fn new(config: CompilerConfig, toolchain: ToolchainManager, workspace_cargo_toml: Option<PathBuf>) -> Self {
         Self {
             config,
             toolchain,
             parser: DependencyParser::new(),
             type_definitions: String::new(),
+            workspace_cargo_toml,
         }
     }
 
     /// Parse dependencies and extract type definitions from notebook source.
     ///
-    /// Delegates to [`DependencyParser`] for dependency parsing and extracts
-    /// user-defined types (structs, enums, type aliases) for inclusion in the universe.
-    pub fn parse_dependencies(&mut self, source: &str) -> Result<()> {
+    /// Delegates to [`DependencyParser`] for dependency parsing and uses
+    /// definition cells (structs, enums, type aliases) for inclusion in the universe.
+    pub fn parse_dependencies(&mut self, source: &str, definition_cells: &[DefinitionCell]) -> Result<()> {
         self.parser.parse(source);
-        self.type_definitions = Self::extract_type_definitions(source);
+
+        // Build type_definitions from DefinitionCell contents
+        self.type_definitions = definition_cells
+            .iter()
+            .map(|cell| cell.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        // Transform derives to include rkyv
+        self.type_definitions = Self::transform_derives_to_rkyv(&self.type_definitions);
+
         Ok(())
-    }
-
-    /// Extract type definitions (structs, enums, type aliases) from notebook source.
-    ///
-    /// This finds all type definitions that are NOT cells (not marked with #[venus::cell])
-    /// so they can be included in the universe for cells to use.
-    fn extract_type_definitions(source: &str) -> String {
-        let mut types = String::new();
-        let mut in_type_def = false;
-        let mut brace_depth: i32 = 0;
-        let mut current_def = String::new();
-        let mut skip_next_item = false;
-
-        for line in source.lines() {
-            let trimmed = line.trim();
-
-            // Skip venus::cell functions - they're handled separately
-            if trimmed.starts_with("#[venus::cell]") || trimmed.starts_with("#[venus :: cell]") {
-                skip_next_item = true;
-                continue;
-            }
-
-            // Skip module-level doc comments and cargo blocks
-            if trimmed.starts_with("//!") {
-                continue;
-            }
-
-            // Check if this is the start of a type definition
-            let is_type_start = trimmed.starts_with("pub struct ")
-                || trimmed.starts_with("struct ")
-                || trimmed.starts_with("pub enum ")
-                || trimmed.starts_with("enum ")
-                || trimmed.starts_with("pub type ")
-                || trimmed.starts_with("type ")
-                || trimmed.starts_with("#[derive");
-
-            // Skip function definitions that aren't cells
-            let is_fn_start = trimmed.starts_with("pub fn ")
-                || trimmed.starts_with("fn ")
-                || trimmed.starts_with("pub async fn ")
-                || trimmed.starts_with("async fn ");
-
-            if skip_next_item && is_fn_start {
-                // Skip this function (it's a cell)
-                skip_next_item = false;
-                // Track braces to skip the entire function body
-                brace_depth = 0;
-                for ch in line.chars() {
-                    match ch {
-                        '{' => brace_depth += 1,
-                        '}' => brace_depth = brace_depth.saturating_sub(1),
-                        _ => {}
-                    }
-                }
-                if brace_depth > 0 {
-                    in_type_def = true; // Reuse flag to track skipping
-                    current_def.clear();
-                }
-                continue;
-            }
-
-            // If we're skipping a cell function body
-            if in_type_def && current_def.is_empty() {
-                for ch in line.chars() {
-                    match ch {
-                        '{' => brace_depth += 1,
-                        '}' => brace_depth = brace_depth.saturating_sub(1),
-                        _ => {}
-                    }
-                }
-                if brace_depth == 0 {
-                    in_type_def = false;
-                }
-                continue;
-            }
-
-            // Handle derive attributes - include them with the following type
-            if trimmed.starts_with("#[derive") || trimmed.starts_with("#[") {
-                if !in_type_def {
-                    current_def.push_str(line);
-                    current_def.push('\n');
-                }
-                continue;
-            }
-
-            if is_type_start && !in_type_def {
-                in_type_def = true;
-                current_def.push_str(line);
-                current_def.push('\n');
-
-                // Count braces to track when type ends
-                for ch in line.chars() {
-                    match ch {
-                        '{' => brace_depth += 1,
-                        '}' => brace_depth = brace_depth.saturating_sub(1),
-                        _ => {}
-                    }
-                }
-
-                // Single-line type alias
-                if trimmed.contains("type ") && trimmed.ends_with(';') {
-                    types.push_str(&current_def);
-                    types.push('\n');
-                    current_def.clear();
-                    in_type_def = false;
-                }
-                // Single-line struct/enum
-                else if brace_depth == 0 && trimmed.ends_with(';') {
-                    types.push_str(&current_def);
-                    types.push('\n');
-                    current_def.clear();
-                    in_type_def = false;
-                }
-            } else if in_type_def {
-                current_def.push_str(line);
-                current_def.push('\n');
-
-                for ch in line.chars() {
-                    match ch {
-                        '{' => brace_depth += 1,
-                        '}' => brace_depth = brace_depth.saturating_sub(1),
-                        _ => {}
-                    }
-                }
-
-                if brace_depth == 0 {
-                    types.push_str(&current_def);
-                    types.push('\n');
-                    current_def.clear();
-                    in_type_def = false;
-                }
-            }
-
-            skip_next_item = false;
-        }
-
-        // Transform serde derives to rkyv derives
-        Self::transform_derives_to_rkyv(&types)
     }
 
     /// Transform derives to include rkyv serialization for all user types.
@@ -202,7 +89,17 @@ impl UniverseBuilder {
             let line = lines[i];
             let trimmed = line.trim();
 
-            if trimmed.starts_with("#[derive(") {
+            // Skip existing #[rkyv(...)] attributes to avoid duplication
+            if trimmed.starts_with("#[rkyv(") || trimmed.starts_with("# [rkyv") {
+                i += 1;
+                continue;
+            }
+
+            // Handle both "#[derive(" and "# [derive (" (quote! output has spaces)
+            let is_derive_attr = trimmed.starts_with("#[derive(") ||
+                                 (trimmed.starts_with("# [derive") && trimmed.contains("("));
+
+            if is_derive_attr {
                 // Look ahead to see if this is for a struct/enum
                 let mut is_type_def = false;
                 for j in (i + 1)..lines.len() {
@@ -371,6 +268,37 @@ impl UniverseBuilder {
         Ok(dest)
     }
 
+    /// Copy dependencies from workspace Cargo.toml (if it exists).
+    /// Returns the dependencies section as a string.
+    fn copy_parent_dependencies(&self) -> String {
+        if let Some(cargo_toml_path) = &self.workspace_cargo_toml {
+            if let Ok(content) = fs::read_to_string(cargo_toml_path) {
+                // Simple parser: extract [workspace.dependencies] or [dependencies] section
+                if let Some(deps_start) = content.find("[workspace.dependencies]") {
+                    let after_deps = &content[deps_start + "[workspace.dependencies]".len()..];
+
+                    // Find next section (starts with '[')
+                    let deps_end = after_deps.find("\n[").unwrap_or(after_deps.len());
+                    let deps_section = &after_deps[..deps_end];
+
+                    tracing::info!("Copying workspace dependencies from: {}", cargo_toml_path.display());
+                    return deps_section.trim().to_string();
+                } else if let Some(deps_start) = content.find("[dependencies]") {
+                    let after_deps = &content[deps_start + "[dependencies]".len()..];
+
+                    // Find next section (starts with '[')
+                    let deps_end = after_deps.find("\n[").unwrap_or(after_deps.len());
+                    let deps_section = &after_deps[..deps_end];
+
+                    tracing::info!("Copying dependencies from: {}", cargo_toml_path.display());
+                    return deps_section.trim().to_string();
+                }
+            }
+        }
+
+        String::new()
+    }
+
     /// Generate Cargo.toml for the universe crate.
     fn generate_cargo_toml(&self) -> String {
         let mut toml = String::new();
@@ -434,6 +362,40 @@ impl UniverseBuilder {
             }
         }
 
+        // Copy dependencies from parent Cargo.toml (for user's project dependencies)
+        // Filter out already-added dependencies to avoid duplicates
+        let parent_deps = self.copy_parent_dependencies();
+        if !parent_deps.is_empty() {
+            toml.push('\n');
+            toml.push_str("# Dependencies from parent Cargo.toml\n");
+
+            // Parse and filter out duplicates (venus, rkyv, serde_json)
+            for line in parent_deps.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+
+                // Extract dependency name (before '=')
+                if let Some(dep_name) = trimmed.split('=').next() {
+                    let dep_name = dep_name.trim();
+                    // Skip if already added or internal venus crates
+                    if dep_name == "venus"
+                        || dep_name == "venus-macros"
+                        || dep_name == "venus-core"
+                        || dep_name == "venus-sync"
+                        || dep_name == "venus-server"
+                        || dep_name == "rkyv"
+                        || dep_name == "serde_json" {
+                        continue;
+                    }
+                }
+
+                toml.push_str(line);
+                toml.push('\n');
+            }
+        }
+
         // Add empty [workspace] to make this a standalone workspace
         // This prevents it from being pulled into parent workspaces
         toml.push_str("\n[workspace]\n");
@@ -483,6 +445,11 @@ impl UniverseBuilder {
             lib.push_str(&self.type_definitions);
         }
 
+        // Include notebook module for LSP analysis
+        // This module is written by the server with current cell content
+        lib.push_str("\n// Notebook cells (for LSP analysis)\n");
+        lib.push_str("pub mod notebook;\n");
+
         lib
     }
 
@@ -510,7 +477,7 @@ mod tests {
     fn make_builder() -> UniverseBuilder {
         let config = CompilerConfig::default();
         let toolchain = ToolchainManager::new().unwrap();
-        UniverseBuilder::new(config, toolchain)
+        UniverseBuilder::new(config, toolchain, None)
     }
 
     #[test]
@@ -529,7 +496,7 @@ mod tests {
 pub fn hello() -> i32 { 42 }
 "#;
 
-        builder.parse_dependencies(source).unwrap();
+        builder.parse_dependencies(source, &[]).unwrap();
 
         assert_eq!(builder.dependencies().len(), 1);
         assert_eq!(builder.dependencies()[0].name, "serde");
@@ -547,7 +514,7 @@ pub fn hello() -> i32 { 42 }
 //! ```
 "#;
 
-        builder.parse_dependencies(source).unwrap();
+        builder.parse_dependencies(source, &[]).unwrap();
 
         assert_eq!(builder.dependencies().len(), 1);
         assert_eq!(builder.dependencies()[0].name, "tokio");
@@ -568,7 +535,7 @@ pub fn hello() -> i32 { 42 }
 //! ```
 "#;
 
-        builder.parse_dependencies(source).unwrap();
+        builder.parse_dependencies(source, &[]).unwrap();
 
         assert_eq!(builder.dependencies().len(), 3);
     }
@@ -584,7 +551,7 @@ pub fn hello() -> i32 { 42 }
 //! serde = { version = "1.0", features = ["derive"] }
 //! ```
 "#;
-        builder.parse_dependencies(source).unwrap();
+        builder.parse_dependencies(source, &[]).unwrap();
 
         let toml = builder.generate_cargo_toml();
         assert!(toml.contains("[package]"));
@@ -597,7 +564,7 @@ pub fn hello() -> i32 { 42 }
     fn test_hash_changes_with_deps() {
         let mut builder = make_builder();
 
-        builder.parse_dependencies("").unwrap();
+        builder.parse_dependencies("", &[]).unwrap();
         let hash1 = builder.deps_hash();
 
         builder
@@ -608,6 +575,7 @@ pub fn hello() -> i32 { 42 }
 //! serde = "1.0"
 //! ```
 "#,
+                &[]
             )
             .unwrap();
         let hash2 = builder.deps_hash();

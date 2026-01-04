@@ -169,6 +169,7 @@ impl NotebookExecutor {
         let mut parser = CellParser::new();
         let parse_result = parser.parse_file(&abs_path)?;
         let cells = parse_result.code_cells;
+        let definition_cells = parse_result.definition_cells;
         Self::print_success(Some(&format!("{} code cells", cells.len())));
 
         // Build dependency graph
@@ -205,8 +206,8 @@ impl NotebookExecutor {
             CompilerConfig::for_notebook(&dirs)
         };
 
-        let mut universe_builder = UniverseBuilder::new(config.clone(), toolchain.clone());
-        universe_builder.parse_dependencies(&source)?;
+        let mut universe_builder = UniverseBuilder::new(config.clone(), toolchain.clone(), None);
+        universe_builder.parse_dependencies(&source, &definition_cells)?;
         let universe_path = universe_builder.build()?;
 
         if universe_builder.dependencies().is_empty() {

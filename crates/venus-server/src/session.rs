@@ -282,9 +282,10 @@ impl NotebookSession {
         // Update cell states
         self.update_cell_states();
 
-        // Broadcast full state update (includes all cells, not just graph edges)
-        let state = self.get_state();
-        self.broadcast(state);
+        // NOTE: We do NOT broadcast state here because reload() is called by the file watcher
+        // when the notebook file changes (e.g., editor auto-save). Broadcasting on every file
+        // change causes the UI to refresh continuously. Instead, each cell operation (insert,
+        // edit, delete, etc.) explicitly broadcasts state after calling reload().
 
         Ok(())
     }
@@ -386,11 +387,16 @@ impl NotebookSession {
     /// This file contains all cell content in source order so rust-analyzer can analyze it.
     /// Collect all cells (code and definition) in source order.
     /// Returns a vector of (cell_id, start_line, cell_type) tuples sorted by line number.
+    /// Includes all cell types: code, markdown, and definition cells.
     fn collect_cells_in_source_order(&self) -> Vec<(CellId, usize, CellType)> {
         let mut all_cells: Vec<(CellId, usize, CellType)> = Vec::new();
 
         for cell in &self.cells {
             all_cells.push((cell.id, cell.span.start_line, CellType::Code));
+        }
+
+        for md_cell in &self.markdown_cells {
+            all_cells.push((md_cell.id, md_cell.span.start_line, CellType::Markdown));
         }
 
         for def_cell in &self.definition_cells {
@@ -442,27 +448,8 @@ impl NotebookSession {
     /// Note: The virtual notebook.rs file for LSP is written during reload(), not here.
     pub fn get_state(&self) -> ServerMessage {
         // Source order: all cells (code + markdown + definition) in the order they appear in the .rs file
-        let mut all_cells: Vec<(CellId, usize)> = Vec::new();
-
-        // Add code cells with their line numbers
-        for cell in &self.cells {
-            all_cells.push((cell.id, cell.span.start_line));
-        }
-
-        // Add markdown cells with their line numbers
-        for md_cell in &self.markdown_cells {
-            all_cells.push((md_cell.id, md_cell.span.start_line));
-        }
-
-        // Add definition cells with their line numbers
-        for def_cell in &self.definition_cells {
-            all_cells.push((def_cell.id, def_cell.span.start_line));
-        }
-
-        // Sort by line number
-        all_cells.sort_by_key(|(_, line)| *line);
-
-        let source_order: Vec<CellId> = all_cells.into_iter().map(|(id, _)| id).collect();
+        let all_cells = self.collect_cells_in_source_order();
+        let source_order: Vec<CellId> = all_cells.into_iter().map(|(id, _, _)| id).collect();
 
         // Execution order: topologically sorted for dependency resolution (code cells only)
         let execution_order = match self.graph.topological_order() {

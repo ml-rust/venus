@@ -87,16 +87,14 @@ pub async fn serve(notebook_path: impl AsRef<Path>, config: ServerConfig) -> Ser
     let mut watcher = FileWatcher::new(path)?;
 
     // Spawn watcher task and store handle for cleanup
-    let session_clone = session.clone();
     let watcher_task = tokio::spawn(async move {
         while let Some(event) = watcher.recv().await {
             match event {
                 FileEvent::Modified(_) => {
-                    tracing::info!("Notebook file changed, reloading...");
-                    let mut session = session_clone.write().await;
-                    if let Err(e) = session.reload() {
-                        tracing::error!("Failed to reload notebook: {}", e);
-                    }
+                    // NOTE: We do NOT auto-reload here. External file changes should be picked up
+                    // manually via "Restart Kernel" button. Auto-reloading causes infinite loops
+                    // when editors perform frequent auto-saves or temporary file operations.
+                    tracing::debug!("Notebook file changed externally (ignored, use Restart Kernel to apply)");
                 }
                 FileEvent::Removed(path) => {
                     tracing::warn!("Notebook file removed: {}", path.display());

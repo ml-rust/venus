@@ -7,11 +7,10 @@
 
 #![allow(clippy::ptr_arg)]
 
-use serde::{Deserialize, Serialize};
-use venus::{input_slider, input_text_with_default, input_checkbox, input_select};
+use venus::prelude::*;
 
 // Types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Archive, RkyvSerialize, RkyvDeserialize)]
 pub struct Params {
     pub count: i32,
     pub multiplier: f64,
@@ -20,7 +19,7 @@ pub struct Params {
     pub mode: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Archive, RkyvSerialize, RkyvDeserialize)]
 pub struct Report {
     pub title: String,
     pub mode: String,

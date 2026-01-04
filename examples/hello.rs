@@ -5,6 +5,21 @@
 
 #![allow(clippy::ptr_arg)]
 
+use venus::prelude::*;
+
+#[derive(Debug, Clone, Archive, RkyvSerialize, RkyvDeserialize)]
+pub struct Config {
+    pub name: String,
+    pub iterations: i32,
+}
+
+#[derive(Debug, Clone, Archive, RkyvSerialize, RkyvDeserialize)]
+pub struct Summary {
+    pub message: String,
+    pub values: Vec<i32>,
+    pub total: i32,
+}
+
 /// # Configuration
 ///
 /// This cell provides configuration for the notebook.
@@ -48,19 +63,6 @@ pub fn result(greeting: &String, compute: &Vec<i32>) -> Summary {
         values: compute.clone(),
         total: compute.iter().sum(),
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub name: String,
-    pub iterations: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct Summary {
-    pub message: String,
-    pub values: Vec<i32>,
-    pub total: i32,
 }
 
 impl Render for Summary {

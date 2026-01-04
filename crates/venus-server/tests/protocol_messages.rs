@@ -100,6 +100,10 @@ fn test_all_client_messages_serialize() {
             ClientMessage::EditMarkdownCell { .. } => "edit_markdown_cell",
             ClientMessage::DeleteMarkdownCell { .. } => "delete_markdown_cell",
             ClientMessage::MoveMarkdownCell { .. } => "move_markdown_cell",
+            ClientMessage::InsertDefinitionCell { .. } => "insert_definition_cell",
+            ClientMessage::EditDefinitionCell { .. } => "edit_definition_cell",
+            ClientMessage::DeleteDefinitionCell { .. } => "delete_definition_cell",
+            ClientMessage::MoveDefinitionCell { .. } => "move_definition_cell",
         };
 
         assert!(

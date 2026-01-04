@@ -2,7 +2,7 @@
 //!
 //! Tracks operations on the notebook and allows undoing/redoing them.
 
-use venus_core::graph::MoveDirection;
+use venus_core::graph::{CellId, DefinitionType, MoveDirection};
 
 /// Maximum number of undo operations to track.
 const MAX_UNDO_HISTORY: usize = 50;
@@ -97,6 +97,54 @@ pub enum UndoableOperation {
         /// Direction it was moved.
         direction: MoveDirection,
     },
+
+    /// A definition cell was inserted. Undo = delete it.
+    InsertDefinitionCell {
+        /// Start line of the inserted definition cell.
+        start_line: usize,
+        /// End line of the inserted definition cell.
+        end_line: usize,
+        /// Content of the inserted cell (for redo).
+        content: String,
+        /// Type of definition.
+        definition_type: DefinitionType,
+    },
+
+    /// A definition cell was edited. Undo = restore old content.
+    EditDefinitionCell {
+        /// Cell ID that was edited.
+        cell_id: CellId,
+        /// Start line of the definition cell.
+        start_line: usize,
+        /// End line of the definition cell.
+        end_line: usize,
+        /// Old content (for undo).
+        old_content: String,
+        /// New content.
+        new_content: String,
+    },
+
+    /// A definition cell was deleted. Undo = restore it.
+    DeleteDefinitionCell {
+        /// Start line of the deleted definition cell.
+        start_line: usize,
+        /// End line of the deleted definition cell.
+        end_line: usize,
+        /// Content of the deleted cell (for undo).
+        content: String,
+        /// Type of definition.
+        definition_type: DefinitionType,
+    },
+
+    /// A definition cell was moved. Undo = move in opposite direction.
+    MoveDefinitionCell {
+        /// Start line of the moved cell.
+        start_line: usize,
+        /// End line of the moved cell.
+        end_line: usize,
+        /// Direction it was moved.
+        direction: MoveDirection,
+    },
 }
 
 impl UndoableOperation {
@@ -138,6 +186,22 @@ impl UndoableOperation {
                 };
                 format!("Move markdown cell at line {} {}", start_line, dir_str)
             }
+            Self::InsertDefinitionCell { start_line, .. } => {
+                format!("Insert definition cell at line {}", start_line)
+            }
+            Self::EditDefinitionCell { start_line, .. } => {
+                format!("Edit definition cell at line {}", start_line)
+            }
+            Self::DeleteDefinitionCell { start_line, .. } => {
+                format!("Delete definition cell at line {}", start_line)
+            }
+            Self::MoveDefinitionCell { start_line, direction, .. } => {
+                let dir_str = match direction {
+                    MoveDirection::Up => "up",
+                    MoveDirection::Down => "down",
+                };
+                format!("Move definition cell at line {} {}", start_line, dir_str)
+            }
         }
     }
 
@@ -178,6 +242,22 @@ impl UndoableOperation {
                     MoveDirection::Down => "up",
                 };
                 format!("Move markdown cell at line {} {}", start_line, dir_str)
+            }
+            Self::InsertDefinitionCell { start_line, .. } => {
+                format!("Delete definition cell at line {}", start_line)
+            }
+            Self::EditDefinitionCell { start_line, .. } => {
+                format!("Restore definition cell at line {}", start_line)
+            }
+            Self::DeleteDefinitionCell { start_line, .. } => {
+                format!("Restore definition cell at line {}", start_line)
+            }
+            Self::MoveDefinitionCell { start_line, direction, .. } => {
+                let dir_str = match direction {
+                    MoveDirection::Up => "down",
+                    MoveDirection::Down => "up",
+                };
+                format!("Move definition cell at line {} {}", start_line, dir_str)
             }
         }
     }

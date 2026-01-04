@@ -15,13 +15,29 @@ use venus_core::compile::{
     CellCompiler, CompilationResult, CompilerConfig, ToolchainManager, UniverseBuilder,
 };
 use venus_core::execute::{ExecutorKillHandle, ProcessExecutor};
-use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine, MarkdownCell, MoveDirection, SourceEditor};
+use venus_core::graph::{CellId, CellInfo, CellParser, CellType, DefinitionCell, GraphEngine, MarkdownCell, MoveDirection, SourceEditor};
 use venus_core::paths::NotebookDirs;
 
 use crate::error::{ServerError, ServerResult};
 use crate::protocol::{CellOutput, CellState, CellStatus, ServerMessage};
 use crate::undo::{UndoManager, UndoableOperation};
 use venus_core::state::BoxedOutput;
+
+/// Find workspace root by walking up from notebook path to find Cargo.toml.
+/// Returns (workspace_root, cargo_toml_path).
+fn find_workspace_root(notebook_path: &Path) -> (Option<PathBuf>, Option<PathBuf>) {
+    let mut current = notebook_path.parent();
+
+    while let Some(dir) = current {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists() {
+            return (Some(dir.to_path_buf()), Some(cargo_toml));
+        }
+        current = dir.parent();
+    }
+
+    (None, None)
+}
 
 /// Shared interrupt flag that can be checked without locks.
 pub type InterruptFlag = Arc<AtomicBool>;
@@ -36,11 +52,17 @@ pub struct NotebookSession {
     /// Path to the notebook file.
     path: PathBuf,
 
+    /// Path to workspace Cargo.toml (if found).
+    workspace_cargo_toml: Option<PathBuf>,
+
     /// Parsed code cells.
     cells: Vec<CellInfo>,
 
     /// Parsed markdown cells.
     markdown_cells: Vec<MarkdownCell>,
+
+    /// Parsed definition cells (imports, types, helpers).
+    definition_cells: Vec<DefinitionCell>,
 
     /// Dependency graph.
     graph: GraphEngine,
@@ -136,6 +158,9 @@ impl NotebookSession {
             message: e.to_string(),
         })?;
 
+        // Find workspace Cargo.toml (if it exists)
+        let (_workspace_root, workspace_cargo_toml) = find_workspace_root(&path);
+
         // Set up directories using shared abstraction
         let dirs = NotebookDirs::from_notebook_path(&path)?;
 
@@ -149,8 +174,10 @@ impl NotebookSession {
 
         let mut session = Self {
             path,
+            workspace_cargo_toml,
             cells: Vec::new(),
             markdown_cells: Vec::new(),
+            definition_cells: Vec::new(),
             graph: GraphEngine::new(),
             cell_states: HashMap::new(),
             toolchain,
@@ -206,11 +233,12 @@ impl NotebookSession {
     pub fn reload(&mut self) -> ServerResult<()> {
         let source = std::fs::read_to_string(&self.path)?;
 
-        // Parse cells (both code and markdown)
+        // Parse cells (code, markdown, and definitions)
         let mut parser = CellParser::new();
         let parse_result = parser.parse_file(&self.path)?;
         self.cells = parse_result.code_cells;
         self.markdown_cells = parse_result.markdown_cells;
+        self.definition_cells = parse_result.definition_cells;
 
         // Build graph and update code cells with real IDs (parser returns placeholder IDs)
         self.graph = GraphEngine::new();
@@ -231,10 +259,22 @@ impl NotebookSession {
             next_id += 1;
         }
 
+        // Assign unique IDs to definition cells
+        for def_cell in &mut self.definition_cells {
+            def_cell.id = CellId::new(next_id);
+            next_id += 1;
+        }
+
+        // Write virtual notebook.rs file for LSP analysis BEFORE building universe
+        // This ensures the file exists when universe is compiled (lib.rs includes `pub mod notebook;`)
+        if let Err(e) = self.write_virtual_notebook_file() {
+            tracing::warn!("Failed to write virtual notebook file: {}", e);
+        }
+
         // Build universe (always needed for bincode/serde runtime)
         let mut universe_builder =
-            UniverseBuilder::new(self.config.clone(), self.toolchain.clone());
-        universe_builder.parse_dependencies(&source)?;
+            UniverseBuilder::new(self.config.clone(), self.toolchain.clone(), self.workspace_cargo_toml.clone());
+        universe_builder.parse_dependencies(&source, &self.definition_cells)?;
 
         self.universe_path = Some(universe_builder.build()?);
         self.deps_hash = universe_builder.deps_hash();
@@ -328,12 +368,80 @@ impl NotebookSession {
             new_states.insert(md_cell.id, state);
         }
 
+        // Add definition cells
+        for def_cell in &self.definition_cells {
+            let state = CellState::Definition {
+                id: def_cell.id,
+                content: def_cell.content.clone(),
+                definition_type: def_cell.definition_type,
+                doc_comment: def_cell.doc_comment.clone(),
+            };
+            new_states.insert(def_cell.id, state);
+        }
+
         self.cell_states = new_states;
     }
 
+    /// Write virtual notebook.rs file for LSP analysis.
+    /// This file contains all cell content in source order so rust-analyzer can analyze it.
+    /// Collect all cells (code and definition) in source order.
+    /// Returns a vector of (cell_id, start_line, cell_type) tuples sorted by line number.
+    fn collect_cells_in_source_order(&self) -> Vec<(CellId, usize, CellType)> {
+        let mut all_cells: Vec<(CellId, usize, CellType)> = Vec::new();
+
+        for cell in &self.cells {
+            all_cells.push((cell.id, cell.span.start_line, CellType::Code));
+        }
+
+        for def_cell in &self.definition_cells {
+            all_cells.push((def_cell.id, def_cell.span.start_line, CellType::Definition));
+        }
+
+        all_cells.sort_by_key(|(_, line, _)| *line);
+        all_cells
+    }
+
+    fn write_virtual_notebook_file(&self) -> std::io::Result<()> {
+        use std::fs;
+
+        let dirs = NotebookDirs::from_notebook_path(&self.path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let universe_src = dirs.build_dir.join("universe").join("src");
+        fs::create_dir_all(&universe_src)?;
+
+        let mut lines = Vec::new();
+        let all_cells = self.collect_cells_in_source_order();
+
+        // Build combined source
+        for (cell_id, _, cell_type) in all_cells {
+            match cell_type {
+                CellType::Code => {
+                    if let Some(cell) = self.cells.iter().find(|c| c.id == cell_id) {
+                        lines.push(cell.source_code.clone());
+                        lines.push(String::new()); // Empty line between cells
+                    }
+                }
+                CellType::Definition => {
+                    if let Some(def_cell) = self.definition_cells.iter().find(|c| c.id == cell_id) {
+                        lines.push(def_cell.content.clone());
+                        lines.push(String::new()); // Empty line between cells
+                    }
+                }
+                _ => {} // Ignore markdown cells
+            }
+        }
+
+        let content = lines.join("\n");
+        fs::write(universe_src.join("notebook.rs"), content)?;
+
+        Ok(())
+    }
+
     /// Get the full notebook state.
+    /// Returns a snapshot of the current notebook state for UI rendering.
+    /// Note: The virtual notebook.rs file for LSP is written during reload(), not here.
     pub fn get_state(&self) -> ServerMessage {
-        // Source order: all cells (code + markdown) in the order they appear in the .rs file
+        // Source order: all cells (code + markdown + definition) in the order they appear in the .rs file
         let mut all_cells: Vec<(CellId, usize)> = Vec::new();
 
         // Add code cells with their line numbers
@@ -344,6 +452,11 @@ impl NotebookSession {
         // Add markdown cells with their line numbers
         for md_cell in &self.markdown_cells {
             all_cells.push((md_cell.id, md_cell.span.start_line));
+        }
+
+        // Add definition cells with their line numbers
+        for def_cell in &self.definition_cells {
+            all_cells.push((def_cell.id, def_cell.span.start_line));
         }
 
         // Sort by line number
@@ -360,11 +473,16 @@ impl NotebookSession {
             }
         };
 
+        // Find workspace root by walking up from notebook path to find Cargo.toml
+        let (workspace_root, cargo_toml_path) = find_workspace_root(&self.path);
+
         ServerMessage::NotebookState {
             path: self.path.display().to_string(),
             cells: self.cell_states.values().cloned().collect(),
             source_order,
             execution_order,
+            workspace_root: workspace_root.map(|p| p.display().to_string()),
+            cargo_toml_path: cargo_toml_path.map(|p| p.display().to_string()),
         }
     }
 
@@ -1166,6 +1284,240 @@ impl NotebookSession {
         Ok(())
     }
 
+    /// Infer the definition type from content for validation.
+    ///
+    /// Provides early error detection when users specify an incorrect definition type.
+    /// This is a best-effort heuristic based on content analysis.
+    ///
+    /// Returns `None` if the type cannot be reliably inferred.
+    fn infer_definition_type(content: &str) -> Option<venus_core::graph::DefinitionType> {
+        use venus_core::graph::DefinitionType;
+
+        let trimmed = content.trim();
+
+        // Check for import statements (use declarations)
+        if trimmed.starts_with("use ") || trimmed.starts_with("pub use ") {
+            return Some(DefinitionType::Import);
+        }
+
+        // Check for struct definitions
+        if trimmed.contains("struct ") {
+            return Some(DefinitionType::Struct);
+        }
+
+        // Check for enum definitions
+        if trimmed.contains("enum ") {
+            return Some(DefinitionType::Enum);
+        }
+
+        // Check for type alias (but not inside a function)
+        if trimmed.contains("type ") && !trimmed.contains("fn ") {
+            return Some(DefinitionType::TypeAlias);
+        }
+
+        // Check for function definitions (without #[venus::cell])
+        if trimmed.contains("fn ") && !trimmed.contains("#[venus::cell]") {
+            return Some(DefinitionType::HelperFunction);
+        }
+
+        None
+    }
+
+    /// Validate that the declared definition type matches the content.
+    ///
+    /// Provides a warning if there's a mismatch, but doesn't fail the operation
+    /// since the actual parsing will catch any real errors during universe build.
+    ///
+    /// Returns `Ok(())` if valid or cannot be validated, `Err` only for clear mismatches.
+    fn validate_definition_type(
+        content: &str,
+        declared_type: venus_core::graph::DefinitionType,
+    ) -> ServerResult<()> {
+        if let Some(inferred_type) = Self::infer_definition_type(content) {
+            if std::mem::discriminant(&inferred_type) != std::mem::discriminant(&declared_type) {
+                tracing::warn!(
+                    "Definition type mismatch: declared {:?} but content suggests {:?}",
+                    declared_type,
+                    inferred_type
+                );
+                // For now, just warn - don't fail the operation
+                // The universe build will catch actual syntax errors
+            }
+        }
+        Ok(())
+    }
+
+    /// Insert a new definition cell.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    /// Returns the ID of the newly inserted definition cell.
+    ///
+    /// Validates that the definition type matches the content before insertion.
+    pub fn insert_definition_cell(
+        &mut self,
+        content: String,
+        definition_type: venus_core::graph::DefinitionType,
+        after_cell_id: Option<CellId>,
+    ) -> ServerResult<CellId> {
+        // Validate definition type matches content
+        Self::validate_definition_type(&content, definition_type)?;
+        // Convert cell ID to line number if provided
+        let after_line = after_cell_id.and_then(|id| {
+            // Try to find in code cells
+            self.cells.iter().find(|c| c.id == id)
+                .map(|c| c.span.end_line)
+                .or_else(|| {
+                    // Try to find in markdown cells
+                    self.markdown_cells.iter().find(|m| m.id == id)
+                        .map(|m| m.span.end_line)
+                })
+                .or_else(|| {
+                    // Try to find in definition cells
+                    self.definition_cells.iter().find(|d| d.id == id)
+                        .map(|d| d.span.end_line)
+                })
+        });
+
+        // Use insert_raw_code which writes raw Rust code without // prefix
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.insert_raw_code(&content, after_line)?;
+
+        let start_line = after_line.map(|l| l + 1).unwrap_or(0);
+        let line_count = content.lines().count();
+        let end_line = start_line + line_count;
+
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::InsertDefinitionCell {
+            start_line,
+            end_line,
+            content: content.clone(),
+            definition_type,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        // Find the newly inserted definition cell (it should be at the expected line)
+        let new_cell_id = self.definition_cells
+            .iter()
+            .find(|d| d.span.start_line >= start_line && d.span.start_line <= end_line)
+            .map(|d| d.id)
+            .ok_or_else(|| ServerError::InvalidOperation("Failed to find inserted definition cell".to_string()))?;
+
+        Ok(new_cell_id)
+    }
+
+    /// Edit a definition cell's content.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    /// Returns a list of cells that are now dirty due to the definition change.
+    pub fn edit_definition_cell(&mut self, cell_id: CellId, new_content: String) -> ServerResult<Vec<CellId>> {
+        // Find the definition cell
+        let def_cell = self.definition_cells
+            .iter()
+            .find(|d| d.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let start_line = def_cell.span.start_line;
+        let end_line = def_cell.span.end_line;
+        let old_content = def_cell.content.clone();
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        // Use edit_raw_code which edits raw Rust code without // prefix
+        editor.edit_raw_code(start_line, end_line, &new_content)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::EditDefinitionCell {
+            cell_id,
+            start_line,
+            end_line,
+            old_content,
+            new_content: new_content.clone(),
+        });
+
+        // Reload to update in-memory state (rebuilds universe with new definitions)
+        self.reload()?;
+
+        // Mark ALL executable cells as dirty (any cell could use the definitions)
+        let dirty_cells: Vec<CellId> = self.cells.iter().map(|c| c.id).collect();
+        for &cell_id in &dirty_cells {
+            if let Some(state) = self.cell_states.get_mut(&cell_id) {
+                state.set_dirty(true);
+            }
+        }
+
+        Ok(dirty_cells)
+    }
+
+    /// Delete a definition cell.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn delete_definition_cell(&mut self, cell_id: CellId) -> ServerResult<()> {
+        // Find the definition cell
+        let def_cell = self.definition_cells
+            .iter()
+            .find(|d| d.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let start_line = def_cell.span.start_line;
+        let end_line = def_cell.span.end_line;
+        let content = def_cell.content.clone();
+        let definition_type = def_cell.definition_type;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.delete_markdown_cell(start_line, end_line)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::DeleteDefinitionCell {
+            start_line,
+            end_line,
+            content,
+            definition_type,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
+    /// Move a definition cell up or down.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn move_definition_cell(&mut self, cell_id: CellId, direction: MoveDirection) -> ServerResult<()> {
+        // Find the definition cell
+        let def_cell = self.definition_cells
+            .iter()
+            .find(|d| d.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let start_line = def_cell.span.start_line;
+        let end_line = def_cell.span.end_line;
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+        editor.move_markdown_cell(start_line, end_line, direction)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::MoveDefinitionCell {
+            start_line,
+            end_line,
+            direction,
+        });
+
+        // Reload to update in-memory state
+        self.reload()?;
+
+        Ok(())
+    }
+
     /// Undo the last cell management operation.
     ///
     /// Returns a description of what was undone, or an error if undo failed.
@@ -1218,6 +1570,27 @@ impl NotebookSession {
             }
             UndoableOperation::MoveMarkdownCell { start_line, end_line, direction } => {
                 // Undo move markdown = move in opposite direction
+                let reverse_direction = match direction {
+                    MoveDirection::Up => MoveDirection::Down,
+                    MoveDirection::Down => MoveDirection::Up,
+                };
+                editor.move_markdown_cell(*start_line, *end_line, reverse_direction)?;
+            }
+            UndoableOperation::InsertDefinitionCell { start_line, end_line, .. } => {
+                // Undo insert definition = delete it
+                editor.delete_markdown_cell(*start_line, *end_line)?;
+            }
+            UndoableOperation::EditDefinitionCell { start_line, end_line, old_content, .. } => {
+                // Undo edit definition = restore old content
+                editor.edit_markdown_cell(*start_line, *end_line, old_content, false)?;
+            }
+            UndoableOperation::DeleteDefinitionCell { start_line, content, .. } => {
+                // Undo delete definition = restore it
+                let after_line = if *start_line > 0 { Some(start_line - 1) } else { None };
+                editor.insert_markdown_cell(content, after_line)?;
+            }
+            UndoableOperation::MoveDefinitionCell { start_line, end_line, direction } => {
+                // Undo move definition = move in opposite direction
                 let reverse_direction = match direction {
                     MoveDirection::Up => MoveDirection::Down,
                     MoveDirection::Down => MoveDirection::Up,
@@ -1288,6 +1661,25 @@ impl NotebookSession {
             }
             UndoableOperation::MoveMarkdownCell { start_line, end_line, direction } => {
                 // Redo move markdown = move in same direction
+                editor.move_markdown_cell(*start_line, *end_line, *direction)?;
+            }
+            UndoableOperation::InsertDefinitionCell { start_line, content, .. } => {
+                // Redo insert definition = insert again at original position
+                let after_line = if *start_line > 0 { Some(start_line - 1) } else { None };
+                editor.insert_markdown_cell(content, after_line)?;
+            }
+            UndoableOperation::EditDefinitionCell { start_line, end_line, new_content, .. } => {
+                // Redo edit definition = apply new content again
+                editor.edit_markdown_cell(*start_line, *end_line, new_content, false)?;
+            }
+            UndoableOperation::DeleteDefinitionCell { start_line, content, .. } => {
+                // Redo delete definition = delete again
+                let line_count = content.lines().count();
+                let end_line = start_line + line_count;
+                editor.delete_markdown_cell(*start_line, end_line)?;
+            }
+            UndoableOperation::MoveDefinitionCell { start_line, end_line, direction } => {
+                // Redo move definition = move in same direction
                 editor.move_markdown_cell(*start_line, *end_line, *direction)?;
             }
         }

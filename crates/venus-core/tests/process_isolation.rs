@@ -44,8 +44,9 @@ fn test_infinite_loop_can_be_killed() {
 
     // Build universe
     let source = std::fs::read_to_string(&notebook_path).unwrap();
-    let mut universe_builder = UniverseBuilder::new(config.clone(), toolchain.clone());
-    universe_builder.parse_dependencies(&source).unwrap();
+    let mut universe_builder = UniverseBuilder::new(config.clone(), toolchain.clone(), None);
+    // No definition cells in simple test notebooks
+    universe_builder.parse_dependencies(&source, &[]).unwrap();
     let universe_path = universe_builder.build().unwrap();
     let deps_hash = universe_builder.deps_hash();
 
@@ -136,8 +137,9 @@ fn test_normal_execution_with_process_isolation() {
 
     // Build universe
     let source = std::fs::read_to_string(&notebook_path).unwrap();
-    let mut universe_builder = UniverseBuilder::new(config.clone(), toolchain.clone());
-    universe_builder.parse_dependencies(&source).unwrap();
+    let mut universe_builder = UniverseBuilder::new(config.clone(), toolchain.clone(), None);
+    // No definition cells in simple test notebooks
+    universe_builder.parse_dependencies(&source, &[]).unwrap();
     let universe_path = universe_builder.build().unwrap();
     let deps_hash = universe_builder.deps_hash();
 

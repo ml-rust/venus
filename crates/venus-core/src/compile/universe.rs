@@ -386,7 +386,8 @@ impl UniverseBuilder {
                         || dep_name == "venus-sync"
                         || dep_name == "venus-server"
                         || dep_name == "rkyv"
-                        || dep_name == "serde_json" {
+                        || dep_name == "serde_json"
+                        || dep_name == "serde" {
                         continue;
                     }
                 }

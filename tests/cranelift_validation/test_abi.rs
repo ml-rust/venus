@@ -1,20 +1,25 @@
 //! Test program that loads both libraries and verifies ABI compatibility.
 
-use std::path::Path;
+use std::path::PathBuf;
+use venus_core::compile::types::{dylib_extension, dylib_prefix};
 
 fn main() {
     println!("=== Venus Cranelift ABI Compatibility Test ===\n");
 
-    let universe_path = Path::new("libuniverse.so");
-    let cell_path = Path::new("libcell.so");
+    // Build platform-specific library names
+    let universe_name = format!("{}universe.{}", dylib_prefix(), dylib_extension());
+    let cell_name = format!("{}cell.{}", dylib_prefix(), dylib_extension());
+
+    let universe_path = PathBuf::from(&universe_name);
+    let cell_path = PathBuf::from(&cell_name);
 
     if !universe_path.exists() {
-        eprintln!("Error: libuniverse.so not found. Run the build script first.");
+        eprintln!("Error: {} not found. Run the build script first.", universe_name);
         std::process::exit(1);
     }
 
     if !cell_path.exists() {
-        eprintln!("Error: libcell.so not found. Run the build script first.");
+        eprintln!("Error: {} not found. Run the build script first.", cell_name);
         std::process::exit(1);
     }
 

@@ -268,8 +268,20 @@ pub fn process(greeting: &String) -> String {{
     println!("Created new notebook: {}", notebook_path.display());
 
     // Update Cargo.toml for LSP support
-    let current_dir = std::env::current_dir()?;
-    let cargo_manager = CargoManager::new(&current_dir)?;
+    // Cargo.toml is ALWAYS created in the current working directory (root)
+    // UNLESS a path was specified, then extract the root from that path
+    let root_dir = if name.contains('/') || name.contains('\\') {
+        // Path was specified, use its parent as root, or current dir if no parent
+        match Path::new(name).parent() {
+            Some(p) => p.to_path_buf(),
+            None => std::env::current_dir()?,
+        }
+    } else {
+        // No path specified, use current directory as root
+        std::env::current_dir()?
+    };
+
+    let cargo_manager = CargoManager::new(&root_dir)?;
 
     let mode = if workspace {
         IntegrationMode::WorkspaceMember

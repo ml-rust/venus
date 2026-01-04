@@ -60,8 +60,8 @@ impl CellCompiler {
         // Generate wrapper code
         let wrapper_code = self.generate_wrapper(cell);
 
-        // Compile
-        match self.compile_to_dylib(cell, &wrapper_code) {
+        // Compile - include source_hash in dylib name to force reload on changes
+        match self.compile_to_dylib(cell, &wrapper_code, source_hash) {
             Ok(dylib_path) => {
                 let compile_time = start.elapsed().as_millis() as u64;
 
@@ -289,6 +289,7 @@ impl CellCompiler {
         &self,
         cell: &CellInfo,
         wrapper_code: &str,
+        source_hash: u64,
     ) -> std::result::Result<PathBuf, Vec<super::CompileError>> {
         let build_dir = self.config.cell_build_dir();
         fs::create_dir_all(&build_dir).map_err(|e| {
@@ -300,9 +301,22 @@ impl CellCompiler {
         fs::write(&src_file, wrapper_code)
             .map_err(|e| super::CompileError::simple(format!("Failed to write source: {}", e)))?;
 
-        // Output path
-        let dylib_name = format!("{}cell_{}.{}", dylib_prefix(), cell.name, dylib_extension());
+        // Output path - include hash to force dlopen to reload on changes
+        // (Linux caches shared libraries by path, so we need unique paths)
+        let dylib_name = format!("{}cell_{}_{:x}.{}", dylib_prefix(), cell.name, source_hash, dylib_extension());
         let dylib_path = build_dir.join(&dylib_name);
+
+        // Clean up old dylibs for this cell (they accumulate with different hashes)
+        let cell_prefix = format!("{}cell_{}_", dylib_prefix(), cell.name);
+        if let Ok(entries) = fs::read_dir(&build_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with(&cell_prefix) && name_str != dylib_name {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
 
         // Build rustc command
         let mut cmd = Command::new(self.toolchain.rustc_path());

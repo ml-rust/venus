@@ -233,6 +233,14 @@ impl UniverseBuilder {
         fs::create_dir_all(&src_dir)?;
         fs::write(src_dir.join("lib.rs"), lib_rs)?;
 
+        // Generate stub notebook.rs (required by lib.rs `pub mod notebook;`)
+        // The server overwrites this with real cell content for LSP analysis.
+        // For CLI builds, this stub satisfies the module declaration.
+        let notebook_rs = "//! Notebook cells module.\n\
+                          //! This file is populated by the server for LSP analysis.\n\
+                          //! For CLI builds, this is a stub to satisfy the module declaration.\n";
+        fs::write(src_dir.join("notebook.rs"), notebook_rs)?;
+
         // Build with cargo
         let output = Command::new("cargo")
             .current_dir(&build_dir)

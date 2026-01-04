@@ -132,6 +132,8 @@ fn test_all_server_messages_serialize() {
             cells: vec![],
             source_order: vec![],
             execution_order: vec![],
+            workspace_root: Some("/test".to_string()),
+            cargo_toml_path: Some("/test/Cargo.toml".to_string()),
         },
         ServerMessage::CellStarted {
             cell_id: CellId::new(1),

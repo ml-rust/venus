@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use venus::widgets::{WidgetDef, WidgetValue};
-use venus_core::graph::CellId;
+use venus_core::graph::{CellId, DefinitionType};
 
 // Re-export MoveDirection from venus_core for use in protocol messages
 pub use venus_core::graph::MoveDirection;
@@ -138,6 +138,38 @@ pub enum ClientMessage {
         /// Direction to move.
         direction: MoveDirection,
     },
+
+    /// Insert a new definition cell.
+    InsertDefinitionCell {
+        /// Definition content (source code).
+        content: String,
+        /// Type of definition.
+        definition_type: DefinitionType,
+        /// Cell ID to insert after. None = insert at beginning.
+        after_cell_id: Option<CellId>,
+    },
+
+    /// Edit a definition cell's content.
+    EditDefinitionCell {
+        /// Cell to edit.
+        cell_id: CellId,
+        /// New definition content.
+        new_content: String,
+    },
+
+    /// Delete a definition cell.
+    DeleteDefinitionCell {
+        /// Cell to delete.
+        cell_id: CellId,
+    },
+
+    /// Move a definition cell up or down.
+    MoveDefinitionCell {
+        /// Cell to move.
+        cell_id: CellId,
+        /// Direction to move.
+        direction: MoveDirection,
+    },
 }
 
 /// Messages sent from server to client.
@@ -154,6 +186,10 @@ pub enum ServerMessage {
         source_order: Vec<CellId>,
         /// Execution order (topologically sorted cell IDs for dependency resolution).
         execution_order: Vec<CellId>,
+        /// Path to the workspace root (directory containing Cargo.toml).
+        workspace_root: Option<String>,
+        /// Path to the Cargo.toml file for LSP configuration.
+        cargo_toml_path: Option<String>,
     },
 
     /// Cell execution started.
@@ -359,9 +395,44 @@ pub enum ServerMessage {
         /// Error message if move failed.
         error: Option<String>,
     },
+
+    /// Definition cell insertion result.
+    DefinitionCellInserted {
+        /// ID of the newly created definition cell.
+        cell_id: CellId,
+        /// Error message if insertion failed.
+        error: Option<String>,
+    },
+
+    /// Definition cell edit result.
+    DefinitionCellEdited {
+        /// ID of the edited definition cell.
+        cell_id: CellId,
+        /// Error message if edit failed.
+        error: Option<String>,
+        /// Cells that are now dirty (need re-execution) due to definition change.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        dirty_cells: Vec<CellId>,
+    },
+
+    /// Definition cell deletion result.
+    DefinitionCellDeleted {
+        /// ID of the deleted definition cell.
+        cell_id: CellId,
+        /// Error message if deletion failed.
+        error: Option<String>,
+    },
+
+    /// Definition cell move result.
+    DefinitionCellMoved {
+        /// ID of the moved definition cell.
+        cell_id: CellId,
+        /// Error message if move failed.
+        error: Option<String>,
+    },
 }
 
-/// State of a single cell (code or markdown).
+/// State of a single cell (code, markdown, or definition).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cell_type", rename_all = "snake_case")]
 pub enum CellState {
@@ -395,13 +466,26 @@ pub enum CellState {
         /// Markdown content.
         content: String,
     },
+    /// Definition cell (types, imports, helper functions - compiled into universe).
+    Definition {
+        /// Unique cell identifier.
+        id: CellId,
+        /// Definition content (source code).
+        content: String,
+        /// Type of definition.
+        definition_type: DefinitionType,
+        /// Attached doc comment.
+        doc_comment: Option<String>,
+    },
 }
 
 impl CellState {
     /// Get the cell ID.
     pub fn id(&self) -> CellId {
         match self {
-            CellState::Code { id, .. } | CellState::Markdown { id, .. } => *id,
+            CellState::Code { id, .. }
+            | CellState::Markdown { id, .. }
+            | CellState::Definition { id, .. } => *id,
         }
     }
 
@@ -409,7 +493,7 @@ impl CellState {
     pub fn name(&self) -> Option<&str> {
         match self {
             CellState::Code { name, .. } => Some(name),
-            CellState::Markdown { .. } => None,
+            CellState::Markdown { .. } | CellState::Definition { .. } => None,
         }
     }
 
@@ -417,7 +501,7 @@ impl CellState {
     pub fn is_dirty(&self) -> bool {
         match self {
             CellState::Code { dirty, .. } => *dirty,
-            CellState::Markdown { .. } => false,
+            CellState::Markdown { .. } | CellState::Definition { .. } => false,
         }
     }
 
@@ -432,7 +516,7 @@ impl CellState {
     pub fn status(&self) -> Option<CellStatus> {
         match self {
             CellState::Code { status, .. } => Some(*status),
-            CellState::Markdown { .. } => None,
+            CellState::Markdown { .. } | CellState::Definition { .. } => None,
         }
     }
 

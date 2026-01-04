@@ -175,17 +175,17 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
         }
     };
 
-    // Start rust-analyzer
-    let workspace_root = notebook_path
-        .parent()
-        .unwrap_or(&notebook_path)
-        .to_path_buf();
+    // Start rust-analyzer in the notebook's directory (Venus workspace)
+    // Client will filter diagnostics to ONLY show the notebook file
+    let notebook_dir = notebook_path.parent()
+        .expect("Notebook path must have a parent directory");
 
     tracing::info!("Starting rust-analyzer from: {}", ra_path.display());
+    tracing::info!("Working directory: {}", notebook_dir.display());
 
     // Build command with process group configuration
     let mut cmd = Command::new(&ra_path);
-    cmd.current_dir(&workspace_root)
+    cmd.current_dir(notebook_dir)  // Use notebook directory for workspace access
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

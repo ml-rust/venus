@@ -658,6 +658,122 @@ html, body {
     justify-content: flex-end;
 }
 
+/* Definition Cell Styles */
+.cell-definition {
+    background: var(--bg-cell);
+    border: 1px solid var(--border-primary);
+    border-left: 3px solid #58a6ff; /* Blue accent for definitions */
+}
+
+.cell-definition:hover {
+    border-color: #58a6ff;
+    box-shadow: var(--shadow-sm);
+}
+
+.definition-cell-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: rgba(88, 166, 255, 0.1);
+    border-bottom: 1px solid var(--border-secondary);
+}
+
+.definition-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.definition-type-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #58a6ff;
+    background: rgba(88, 166, 255, 0.2);
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    letter-spacing: 0.5px;
+}
+
+.definition-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.definition-doc {
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-secondary);
+    background: var(--bg-tertiary);
+}
+
+.definition-doc p {
+    margin: 0.5em 0;
+}
+
+.definition-doc p:first-child {
+    margin-top: 0;
+}
+
+.definition-doc p:last-child {
+    margin-bottom: 0;
+}
+
+.definition-preview {
+    padding: 1rem;
+    background: var(--bg-secondary);
+}
+
+.definition-preview pre {
+    margin: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+}
+
+.definition-preview code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    line-height: 1.5;
+    display: block;
+    padding: 1rem;
+}
+
+.definition-editor-container {
+    padding: 1rem;
+    background: var(--bg-secondary);
+}
+
+.definition-textarea {
+    width: 100%;
+    min-height: 150px;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.definition-textarea:focus {
+    outline: none;
+    border-color: #58a6ff;
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+}
+
+.definition-editor-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    justify-content: flex-end;
+}
+
 /* Editor Container */
 .cell-editor {
     min-height: 80px;

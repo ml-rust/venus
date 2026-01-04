@@ -21,6 +21,8 @@ const state = {
     monacoReady: false,
     // graphVisible: false,  // Hidden (plotr in development)
     notebookPath: '',
+    workspaceRoot: null,  // Workspace root directory (from server)
+    cargoTomlPath: null,  // Path to Cargo.toml (from server)
     executing: false,  // Track if any execution is in progress
     runningCellId: null,  // Track currently running cell
     executionHistory: new Map(),  // Map<cellId, Array<HistoryEntry>>
@@ -56,6 +58,7 @@ const elements = {
 // Centralized SVG icons for consistency and maintainability
 const ICONS = {
     play: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    save: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>',
     chevronLeft: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>',
     chevronRight: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>',
     chevronLeftSmall: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>',
@@ -73,10 +76,10 @@ const HISTORY_CONFIG = {
 require(['vs/editor/editor.main'], function() {
     state.monacoReady = true;
 
-    // Define Rust language configuration
+    // Define Rust language configuration FIRST
     monaco.languages.register({ id: 'rust' });
 
-    // Set editor theme
+    // Set editor theme BEFORE creating editors
     monaco.editor.defineTheme('venus-dark', {
         base: 'vs-dark',
         inherit: true,
@@ -101,10 +104,14 @@ require(['vs/editor/editor.main'], function() {
         }
     });
 
-    // Re-render any cells that were waiting for Monaco
-    state.cells.forEach((cell, id) => {
-        if (!state.editors.has(id)) {
-            createEditor(id, cell.source);
+    // Create any pending editors that were waiting for Monaco to load
+    state.cells.forEach((cell, cellId) => {
+        if (!state.editors.has(cellId)) {
+            const isDefinition = cell.cell_type === 'definition';
+            const source = isDefinition ? (cell.content || '') : (cell.source || '');
+            if (source) {
+                createEditor(cellId, source);
+            }
         }
     });
 });
@@ -230,6 +237,18 @@ function handleServerMessage(msg) {
         case 'markdown_cell_moved':
             handleMarkdownCellMoved(msg);
             break;
+        case 'definition_cell_inserted':
+            handleDefinitionCellInserted(msg);
+            break;
+        case 'definition_cell_edited':
+            handleDefinitionCellEdited(msg);
+            break;
+        case 'definition_cell_deleted':
+            handleDefinitionCellDeleted(msg);
+            break;
+        case 'definition_cell_moved':
+            handleDefinitionCellMoved(msg);
+            break;
         case 'undo_result':
             handleUndoResult(msg);
             break;
@@ -265,13 +284,10 @@ function handleServerMessage(msg) {
     }
 }
 
-let notebookStateCallCount = 0;
 function handleNotebookState(msg) {
-    notebookStateCallCount++;
-    console.log(`[DEBUG] handleNotebookState called (count: ${notebookStateCallCount})`);
-    console.trace('[DEBUG] Call stack');
-
     state.notebookPath = msg.path;
+    state.workspaceRoot = msg.workspace_root || null;
+    state.cargoTomlPath = msg.cargo_toml_path || null;
     state.sourceOrder = msg.source_order || msg.execution_order;  // Fallback for compatibility
     state.executionOrder = msg.execution_order;
 
@@ -423,39 +439,79 @@ function handleCellMoved(msg) {
     // The notebook_state message will follow to update the UI
 }
 
-function handleMarkdownCellInserted(msg) {
+/**
+ * Generic handler for cell operation results following DRY principle.
+ *
+ * Consolidates duplicate code across markdown and definition cell handlers.
+ * Provides consistent error handling and user feedback across all cell types.
+ *
+ * @param {Object} msg - Server message containing operation result
+ * @param {string} cellType - Type of cell ('markdown' or 'definition')
+ * @param {string} operation - Operation performed ('inserted', 'edited', 'deleted', 'moved')
+ */
+function handleCellOperationResult(msg, cellType, operation) {
+    // Capitalize first letter for display
+    const displayType = cellType.charAt(0).toUpperCase() + cellType.slice(1);
+
     if (msg.error) {
-        showToast(`Failed to insert markdown cell: ${msg.error}`, 'error');
-    } else {
-        showToast('Markdown cell added', 'success');
-        // The notebook_state message will follow to update the UI
+        showToast(`Failed to ${operation.replace('ed', '')} ${cellType} cell: ${msg.error}`, 'error');
+        return;
     }
+
+    // Special handling for 'moved' operations - visual feedback is sufficient
+    if (operation === 'moved') {
+        // No success toast - the visual reorder is feedback enough
+        return;
+    }
+
+    // Special handling for definition cell edits with dirty cells
+    if (cellType === 'definition' && operation === 'edited' && msg.dirty_cells && msg.dirty_cells.length > 0) {
+        showToast(`Definition updated - ${msg.dirty_cells.length} cell(s) marked dirty`, 'warning');
+        return;
+    }
+
+    // Standard success messages
+    const operationMessages = {
+        inserted: 'added',
+        edited: 'updated',
+        deleted: 'deleted'
+    };
+
+    const successMessage = operationMessages[operation] || operation;
+    showToast(`${displayType} cell ${successMessage}`, 'success');
+    // The notebook_state message will follow to update the UI
+}
+
+function handleMarkdownCellInserted(msg) {
+    handleCellOperationResult(msg, 'markdown', 'inserted');
 }
 
 function handleMarkdownCellEdited(msg) {
-    if (msg.error) {
-        showToast(`Failed to edit markdown cell: ${msg.error}`, 'error');
-    } else {
-        showToast('Markdown cell updated', 'success');
-        // The notebook_state message will follow to update the UI
-    }
+    handleCellOperationResult(msg, 'markdown', 'edited');
 }
 
 function handleMarkdownCellDeleted(msg) {
-    if (msg.error) {
-        showToast(`Failed to delete markdown cell: ${msg.error}`, 'error');
-    } else {
-        showToast('Markdown cell deleted', 'success');
-        // The notebook_state message will follow to update the UI
-    }
+    handleCellOperationResult(msg, 'markdown', 'deleted');
 }
 
 function handleMarkdownCellMoved(msg) {
-    if (msg.error) {
-        showToast(`Failed to move markdown cell: ${msg.error}`, 'error');
-    }
-    // No success toast - the visual reorder is feedback enough
-    // The notebook_state message will follow to update the UI
+    handleCellOperationResult(msg, 'markdown', 'moved');
+}
+
+function handleDefinitionCellInserted(msg) {
+    handleCellOperationResult(msg, 'definition', 'inserted');
+}
+
+function handleDefinitionCellEdited(msg) {
+    handleCellOperationResult(msg, 'definition', 'edited');
+}
+
+function handleDefinitionCellDeleted(msg) {
+    handleCellOperationResult(msg, 'definition', 'deleted');
+}
+
+function handleDefinitionCellMoved(msg) {
+    handleCellOperationResult(msg, 'definition', 'moved');
 }
 
 function handleUndoResult(msg) {
@@ -660,6 +716,7 @@ function createCellElement(cell) {
     if (cell.cell_type === 'markdown') {
         return createMarkdownCellElement(cell);
     } else {
+        // Both code and definition cells use the same component
         return createCodeCellElement(cell);
     }
 }
@@ -727,13 +784,16 @@ function createMarkdownCellElement(cell) {
 }
 
 function createCodeCellElement(cell) {
+    const isDefinition = cell.cell_type === 'definition';
+
     const div = document.createElement('div');
-    div.className = `cell ${cell.status}`;
+    div.className = `cell ${isDefinition ? 'cell-definition' : cell.status}`;
     div.id = `cell-${cell.id}`;
     div.dataset.cellId = cell.id;
+    div.dataset.cellType = cell.cell_type || 'code';
 
-    // Dependencies display
-    const depsHtml = cell.dependencies.length > 0
+    // Dependencies display (only for code cells)
+    const depsHtml = !isDefinition && cell.dependencies && cell.dependencies.length > 0
         ? `<div class="cell-dependencies">
             <span>deps:</span>
             ${cell.dependencies.map(d => `<span class="cell-dep">${d}</span>`).join('')}
@@ -745,22 +805,44 @@ function createCodeCellElement(cell) {
         ? `<div class="cell-description">${typeof marked !== 'undefined' ? marked.parse(cell.description) : escapeHtml(cell.description)}</div>`
         : '';
 
-    // Status display
-    const statusHtml = getStatusHtml(cell.status);
+    // Doc comment for definition cells
+    const docHtml = isDefinition && cell.doc_comment
+        ? `<div class="cell-description">${typeof marked !== 'undefined' ? marked.parse(cell.doc_comment) : escapeHtml(cell.doc_comment)}</div>`
+        : '';
+
+    // Status display (only for code cells)
+    const statusHtml = !isDefinition ? getStatusHtml(cell.status) : '';
+
+    // RUN vs SAVE button
+    const actionButton = isDefinition
+        ? `<button class="btn btn-save" data-cell-id="${cell.id}" data-action="save-definition" title="Save Definition">
+               ${ICONS.save}
+           </button>`
+        : `<button class="btn btn-run" data-cell-id="${cell.id}" data-action="run-cell" title="Run Cell">
+               ${ICONS.play}
+           </button>`;
+
+    // Display name
+    const displayName = isDefinition
+        ? (cell.definition_type || 'definition').replace('_', ' ').toUpperCase()
+        : cell.display_name;
+
+    // Return type (only for code cells)
+    const returnTypeHtml = !isDefinition
+        ? `<span class="cell-type">→ ${cell.return_type}</span>`
+        : '';
 
     div.innerHTML = `
         <div class="cell-header">
             <div class="cell-info">
-                <span class="cell-name">${cell.display_name}</span>
-                <span class="cell-type">→ ${cell.return_type}</span>
+                <span class="cell-name">${displayName}</span>
+                ${returnTypeHtml}
                 ${depsHtml}
             </div>
             <div class="cell-actions">
                 <span class="cell-timing" id="timing-${cell.id}"></span>
                 ${statusHtml}
-                <button class="btn btn-run" data-cell-id="${cell.id}" data-action="run-cell" title="Run Cell">
-                    ${ICONS.play}
-                </button>
+                ${actionButton}
                 <button class="btn btn-icon btn-insert" data-cell-id="${cell.id}" data-action="insert-cell" title="Insert cell below">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
@@ -788,20 +870,25 @@ function createCodeCellElement(cell) {
                 </button>
             </div>
         </div>
-        ${descHtml}
+        ${isDefinition ? docHtml : descHtml}
         <div class="cell-editor" id="editor-${cell.id}"></div>
-        <div class="cell-output" id="output-${cell.id}" style="display: none;"></div>
+        ${!isDefinition ? '<div class="cell-output" id="output-' + cell.id + '" style="display: none;"></div>' : ''}
     `;
 
     // Create Monaco editor after element is in DOM
     setTimeout(() => {
         if (state.monacoReady && !state.editors.has(cell.id)) {
-            createEditor(cell.id, cell.source);
+            // Always get fresh cell data from state to avoid race conditions
+            const freshCell = state.cells.get(cell.id);
+            if (!freshCell) return;
+
+            const source = isDefinition ? (freshCell.content || '') : freshCell.source;
+            createEditor(cell.id, source);
         }
     }, 0);
 
-    // Show output if available
-    if (cell.output || cell.error || cell.compileErrors) {
+    // Show output if available (only for code cells)
+    if (!isDefinition && (cell.output || cell.error || cell.compileErrors)) {
         setTimeout(() => {
             if (cell.error) {
                 updateCellError(cell.id);
@@ -819,6 +906,9 @@ function createCodeCellElement(cell) {
 function createEditor(cellId, source) {
     const container = document.getElementById(`editor-${cellId}`);
     if (!container || !state.monacoReady) return;
+
+    // Prevent duplicate editor creation
+    if (state.editors.has(cellId)) return;
 
     const editor = monaco.editor.create(container, {
         value: source,
@@ -862,11 +952,16 @@ function createEditor(cellId, source) {
 
     editor.onDidChangeModelContent(() => {
         updateHeight();
-        // Mark cell as dirty
+        // Mark cell as dirty and update content
         const cell = state.cells.get(cellId);
         if (cell) {
             cell.dirty = true;
-            cell.source = editor.getValue();
+            // Definition cells use 'content', code cells use 'source'
+            if (cell.cell_type === 'definition') {
+                cell.content = editor.getValue();
+            } else {
+                cell.source = editor.getValue();
+            }
         }
         // Notify LSP of document change
         if (typeof notifyDocumentChange === 'function') {
@@ -876,6 +971,11 @@ function createEditor(cellId, source) {
 
     updateHeight();
     state.editors.set(cellId, editor);
+
+    // Force layout recalculation after a tiny delay to fix visual issues
+    setTimeout(() => {
+        editor.layout();
+    }, 10);
 }
 
 function getStatusHtml(status) {
@@ -1412,6 +1512,56 @@ function insertMarkdownCellAtEnd() {
         type: 'insert_markdown_cell',
         content: '# New Markdown Cell\n\nEdit this content...',
         after_cell_id: lastCellId
+    });
+}
+
+// =====================================
+// Definition Cell Operations
+// =====================================
+
+function saveDefinitionCell(cellId) {
+    const editor = state.editors.get(cellId);
+    if (!editor) return;
+
+    const newContent = editor.getValue();
+    send({
+        type: 'edit_definition_cell',
+        cell_id: cellId,
+        new_content: newContent
+    });
+}
+
+function confirmDeleteDefinitionCell(cellId) {
+    showConfirmDialog({
+        title: 'Delete Definition Cell',
+        message: 'Are you sure you want to delete this definition cell? This cannot be undone and may break cells that depend on these definitions.',
+        confirmText: 'Delete',
+        onConfirm: () => deleteDefinitionCell(cellId)
+    });
+}
+
+function deleteDefinitionCell(cellId) {
+    send({ type: 'delete_definition_cell', cell_id: cellId });
+}
+
+function moveDefinitionCellUp(cellId) {
+    send({ type: 'move_definition_cell', cell_id: cellId, direction: 'up' });
+}
+
+function moveDefinitionCellDown(cellId) {
+    send({ type: 'move_definition_cell', cell_id: cellId, direction: 'down' });
+}
+
+function copyDefinitionCell(cellId) {
+    // Copy definition cell content to clipboard
+    const cell = state.cells.get(cellId);
+    if (!cell || cell.cell_type !== 'definition') return;
+
+    navigator.clipboard.writeText(cell.content).then(() => {
+        showToast('Definition copied to clipboard', 'success');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        showToast('Failed to copy to clipboard', 'error');
     });
 }
 
@@ -1978,6 +2128,21 @@ document.addEventListener('click', (e) => {
             break;
         case 'insert-markdown-end':
             insertMarkdownCellAtEnd();
+            break;
+        case 'save-definition':
+            saveDefinitionCell(cellId);
+            break;
+        case 'delete-definition':
+            confirmDeleteDefinitionCell(cellId);
+            break;
+        case 'move-definition-up':
+            moveDefinitionCellUp(cellId);
+            break;
+        case 'move-definition-down':
+            moveDefinitionCellDown(cellId);
+            break;
+        case 'copy-definition':
+            copyDefinitionCell(cellId);
             break;
     }
 });

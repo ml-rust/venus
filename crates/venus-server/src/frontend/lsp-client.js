@@ -30,7 +30,7 @@ function connectLsp() {
 
     lspState.ws.onopen = () => {
         lspState.connected = true;
-        console.log('LSP WebSocket connected');
+        console.log('[LSP] WebSocket connected');
         initializeLsp();
     };
 
@@ -134,6 +134,9 @@ function handleLspMessage(msg) {
  * Handle LSP notification.
  */
 function handleLspNotification(method, params) {
+    // Log all notifications to see what rust-analyzer is sending
+    console.log('[LSP] Notification:', method, params?.uri || '');
+
     switch (method) {
         case 'textDocument/publishDiagnostics':
             handleDiagnostics(params);
@@ -185,15 +188,25 @@ function handleLspShowMessage(params) {
 }
 
 /**
+ * Get notebook directory from path (browser-compatible).
+ */
+function getNotebookDir() {
+    if (!state.notebookPath) return '';
+    return state.notebookPath.substring(0, state.notebookPath.lastIndexOf('/'));
+}
+
+/**
  * Initialize LSP connection.
  */
 async function initializeLsp() {
     try {
-        // Get workspace root from notebook path (parent directory)
-        const workspaceRoot = state.notebookPath
-            ? state.notebookPath.substring(0, state.notebookPath.lastIndexOf('/'))
-            : null;
-        const rootUri = workspaceRoot ? `file://${workspaceRoot}` : null;
+        // Use the universe package Cargo.toml for proper dependency resolution
+        const notebookDir = getNotebookDir();
+        const universeCargoToml = `${notebookDir}/.venus/build/universe/Cargo.toml`;
+
+        console.log('[LSP] Notebook dir:', notebookDir);
+        console.log('[LSP] Universe Cargo.toml:', universeCargoToml);
+        console.log('[LSP] Using universe package for LSP analysis');
 
         const result = await sendLspRequest('initialize', {
             processId: null,
@@ -221,15 +234,17 @@ async function initializeLsp() {
                         relatedInformation: true,
                     },
                 },
-                workspace: {
-                    workspaceFolders: true,
+            },
+            // Set the universe directory as the workspace root
+            // This makes rust-analyzer treat it as a standalone workspace
+            rootUri: `file://${notebookDir}/.venus/build/universe`,
+            workspaceFolders: null,
+            initializationOptions: {
+                'rust-analyzer': {
+                    // Disable check on save to reduce noise
+                    checkOnSave: false,
                 },
             },
-            rootUri: rootUri,
-            workspaceFolders: rootUri ? [{
-                uri: rootUri,
-                name: 'venus-notebook',
-            }] : null,
         });
 
         lspState.capabilities = result.capabilities;
@@ -238,7 +253,7 @@ async function initializeLsp() {
         // Send initialized notification
         sendLspNotification('initialized', {});
 
-        console.log('LSP initialized with capabilities:', result.capabilities);
+        console.log('[LSP] Initialized with capabilities:', result.capabilities);
 
         // Open the notebook document
         openNotebookDocument();
@@ -255,12 +270,18 @@ function openNotebookDocument() {
         return;
     }
 
-    // Get combined source from all cells
+    // Use the universe package's virtual file location
+    // This is a proper Cargo package that rust-analyzer will analyze
+    const notebookDir = getNotebookDir();
+    const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
     const content = getCombinedSource();
+
+    console.log('[LSP] Opening virtual document:', virtualUri);
+    console.log('[LSP] Virtual document has', content.split('\n').length, 'lines');
 
     sendLspNotification('textDocument/didOpen', {
         textDocument: {
-            uri: `file://${state.notebookPath}`,
+            uri: virtualUri,
             languageId: 'rust',
             version: ++lspState.documentVersion,
             text: content,
@@ -270,17 +291,29 @@ function openNotebookDocument() {
 
 /**
  * Get combined source code from all cells.
+ * Uses sourceOrder to match the actual .rs file structure.
+ * Includes definition cells and code cells, but not markdown cells.
  */
 function getCombinedSource() {
     const lines = [];
 
-    // Add module-level items first (dependencies declaration, etc.)
-    // For now, we combine cell sources
-
-    state.executionOrder.forEach(cellId => {
+    // Iterate in source file order (includes both definition and code cells)
+    state.sourceOrder.forEach(cellId => {
         const cell = state.cells.get(cellId);
-        if (cell && cell.source) {
-            lines.push(cell.source);
+        if (!cell) {
+            return;
+        }
+
+        // Skip markdown cells - they don't need LSP
+        if (cell.cell_type === 'markdown') {
+            return;
+        }
+
+        // Definition cells have 'content', code cells have 'source'
+        const cellContent = cell.cell_type === 'definition' ? cell.content : cell.source;
+
+        if (cellContent) {
+            lines.push(cellContent);
             lines.push('');  // Empty line between cells
         }
     });
@@ -292,15 +325,19 @@ function getCombinedSource() {
  * Notify LSP of document change.
  */
 function notifyDocumentChange() {
-    if (!lspState.initialized) {
+    if (!lspState.initialized || !state.notebookPath) {
         return;
     }
 
+    const notebookDir = getNotebookDir();
+    const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
     const content = getCombinedSource();
+
+    console.log('[LSP] Notifying document change with', content.split('\n').length, 'lines');
 
     sendLspNotification('textDocument/didChange', {
         textDocument: {
-            uri: `file://${state.notebookPath}`,
+            uri: virtualUri,
             version: ++lspState.documentVersion,
         },
         contentChanges: [
@@ -314,8 +351,29 @@ function notifyDocumentChange() {
  * Maps LSP diagnostics to Monaco markers for each cell.
  */
 function handleDiagnostics(params) {
+    console.log('[LSP] Received diagnostics for URI:', params.uri);
+    console.log('[LSP] Diagnostic count:', params.diagnostics.length);
+
+    // ONLY process diagnostics for the virtual document
+    // Ignore diagnostics from other workspace files
+    if (!state.notebookPath) {
+        return;
+    }
+    const notebookDir = getNotebookDir();
+    const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
+    if (params.uri !== virtualUri) {
+        console.log('[LSP] Ignoring diagnostics for non-notebook file:', params.uri);
+        return;
+    }
+
     if (!params.diagnostics || typeof monaco === 'undefined') {
         return;
+    }
+
+    // Log first few diagnostic positions for debugging
+    if (params.diagnostics.length > 0) {
+        console.log('[LSP] First diagnostic at line:', params.diagnostics[0].range.start.line,
+                    'message:', params.diagnostics[0].message.substring(0, 50));
     }
 
     // Group diagnostics by cell
@@ -369,14 +427,20 @@ function handleDiagnostics(params) {
 
     // Apply markers to each cell's editor
     for (const [cellId, markers] of diagnosticsByCell) {
+        console.log(`[LSP] Setting ${markers.length} markers for cell ${cellId}`);
         const editor = state.editors.get(cellId);
         if (editor) {
             const model = editor.getModel();
             if (model) {
+                console.log(`[LSP] Model found for cell ${cellId}, applying markers`);
                 monaco.editor.setModelMarkers(model, 'rust-analyzer', markers);
                 // Force Monaco to render the decorations
                 editor.render(true);
+            } else {
+                console.warn(`[LSP] No model found for cell ${cellId}`);
             }
+        } else {
+            console.warn(`[LSP] No editor found for cell ${cellId}`);
         }
     }
 
@@ -400,21 +464,25 @@ function handleDiagnostics(params) {
 /**
  * Convert global document position to cell-local position.
  * Returns { cellId, line, character } or null if not found.
+ * Uses sourceOrder to match getCombinedSource().
  */
 function globalToCellPosition(globalLine, character) {
     let currentLine = 0;
 
-    for (const cellId of state.executionOrder) {
+    for (const cellId of state.sourceOrder) {
         const cell = state.cells.get(cellId);
-        if (!cell || !cell.source) {
+        if (!cell || cell.cell_type === 'markdown') {
             continue;
         }
 
-        const cellLines = cell.source.split('\n').length;
-        const cellEndLine = currentLine + cellLines;
+        const cellContent = cell.cell_type === 'definition' ? cell.content : cell.source;
+        if (!cellContent) {
+            continue;
+        }
 
-        // Check if global line is within this cell
-        if (globalLine >= currentLine && globalLine < cellEndLine) {
+        const cellLines = cellContent.split('\n').length;
+
+        if (globalLine >= currentLine && globalLine < currentLine + cellLines) {
             return {
                 cellId,
                 line: globalLine - currentLine,
@@ -422,8 +490,7 @@ function globalToCellPosition(globalLine, character) {
             };
         }
 
-        // Move past this cell + empty line separator
-        currentLine = cellEndLine + 1;
+        currentLine += cellLines + 1; // +1 for empty line separator
     }
 
     return null;
@@ -446,7 +513,7 @@ function mapDiagnosticSeverity(severity) {
  * Request completions at a position.
  */
 async function requestCompletions(cellId, line, character) {
-    if (!lspState.initialized) {
+    if (!lspState.initialized || !state.notebookPath) {
         return [];
     }
 
@@ -457,9 +524,11 @@ async function requestCompletions(cellId, line, character) {
     }
 
     try {
+        const notebookDir = getNotebookDir();
+        const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
         const result = await sendLspRequest('textDocument/completion', {
             textDocument: {
-                uri: `file://${state.notebookPath}`,
+                uri: virtualUri,
             },
             position: {
                 line: globalPos.line,
@@ -493,7 +562,7 @@ async function requestCompletions(cellId, line, character) {
  * Request hover info at a position.
  */
 async function requestHover(cellId, line, character) {
-    if (!lspState.initialized) {
+    if (!lspState.initialized || !state.notebookPath) {
         return null;
     }
 
@@ -503,9 +572,11 @@ async function requestHover(cellId, line, character) {
     }
 
     try {
+        const notebookDir = getNotebookDir();
+        const virtualUri = `file://${notebookDir}/.venus/build/universe/src/notebook.rs`;
         const result = await sendLspRequest('textDocument/hover', {
             textDocument: {
-                uri: `file://${state.notebookPath}`,
+                uri: virtualUri,
             },
             position: {
                 line: globalPos.line,
@@ -538,22 +609,27 @@ async function requestHover(cellId, line, character) {
 
 /**
  * Convert cell-local position to global document position.
+ * Uses sourceOrder to match getCombinedSource().
  */
 function cellToGlobalPosition(cellId, line, character) {
-    let globalLine = 0;
+    let currentLine = 0;
 
-    for (const id of state.executionOrder) {
+    for (const id of state.sourceOrder) {
+        const cell = state.cells.get(id);
+        if (!cell || cell.cell_type === 'markdown') {
+            continue;
+        }
+
         if (id === cellId) {
             return {
-                line: globalLine + line,
+                line: currentLine + line,
                 character,
             };
         }
 
-        const cell = state.cells.get(id);
-        if (cell && cell.source) {
-            // Count lines in this cell + 1 empty line
-            globalLine += cell.source.split('\n').length + 1;
+        const cellContent = cell.cell_type === 'definition' ? cell.content : cell.source;
+        if (cellContent) {
+            currentLine += cellContent.split('\n').length + 1; // +1 for empty line
         }
     }
 

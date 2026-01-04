@@ -377,6 +377,35 @@ impl SourceEditor {
         Ok(())
     }
 
+    /// Insert raw Rust code (for definition cells, imports, etc.) without any formatting.
+    /// This is a generic method for inserting plain Rust code without comment prefix or attributes.
+    pub fn insert_raw_code(&mut self, content: &str, after_line: Option<usize>) -> Result<()> {
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        // Determine insertion point
+        let insert_offset = if let Some(line_num) = after_line {
+            if line_num > lines.len() {
+                self.content.len()
+            } else {
+                // Find the end of the function/block at this line
+                self.find_block_end(line_num, &lines)
+            }
+        } else {
+            0 // Insert at beginning
+        };
+
+        // Insert raw code with appropriate spacing (NO formatting)
+        let insert_text = if insert_offset == 0 {
+            format!("{}\n\n", content)
+        } else {
+            format!("\n\n{}\n", content)
+        };
+
+        self.content.insert_str(insert_offset, &insert_text);
+
+        Ok(())
+    }
+
     /// Find the byte offset after the closing brace of a block starting at the given line.
     fn find_block_end(&self, start_line: usize, lines: &[&str]) -> usize {
         if start_line == 0 || start_line > lines.len() {
@@ -470,6 +499,42 @@ impl SourceEditor {
         };
 
         eprintln!("  needs_newline={}", needs_newline);
+
+        Ok(())
+    }
+
+    /// Edit raw Rust code by line range (for definition cells, etc.) without any formatting.
+    /// Replaces the code block at the given line range with new content as-is.
+    pub fn edit_raw_code(&mut self, start_line: usize, end_line: usize, new_content: &str) -> Result<()> {
+        let lines: Vec<&str> = self.content.lines().collect();
+
+        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+            return Err(Error::InvalidOperation(format!(
+                "Invalid line range: {}-{}",
+                start_line, end_line
+            )));
+        }
+
+        // Calculate byte offsets
+        let start_offset = self.line_start_offset(start_line, &lines);
+        let end_offset = self.line_to_byte_offset(end_line, &lines);
+
+        // Replace with raw content (no formatting)
+        let needs_newline = end_offset < self.content.len();
+        self.content = if needs_newline {
+            format!(
+                "{}{}\n{}",
+                &self.content[..start_offset],
+                new_content,
+                &self.content[end_offset..]
+            )
+        } else {
+            format!(
+                "{}{}",
+                &self.content[..start_offset],
+                new_content
+            )
+        };
 
         Ok(())
     }

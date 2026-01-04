@@ -28,7 +28,7 @@ pub fn doubled(config: &i32) -> i32 {
 }
 ```
 
-When `config` changes, `doubled` automatically re-runs.
+When `config` is run, `doubled` is marked dirty (yellow) and needs manual execution.
 
 ### Parameter Matching
 
@@ -149,11 +149,16 @@ Independent cells at the same level can run in parallel.
 
 ## Hot Reload
 
-When you edit a cell:
+When you run a cell:
 
-1. Only that cell and its dependents recompile
-2. State from unaffected cells is preserved
-3. Compilation uses Cranelift JIT for speed
+1. Only that cell recompiles (if source changed - smart caching)
+2. Dependent cells are marked dirty (yellow) if output changed
+3. State from unaffected cells is preserved
+4. Compilation uses Cranelift JIT for speed
+
+**Note**: Cells are never auto-executed. Dirty marking is visual feedback only - you control when to re-run cells.
+
+For detailed execution flow and state lifecycle, see [How It Works](how-it-works.md)
 
 ## Best Practices
 

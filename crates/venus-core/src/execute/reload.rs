@@ -226,61 +226,8 @@ impl Drop for HotReloader {
     }
 }
 
-/// Result of a hot reload operation.
-///
-/// TODO(reload): Return from reload_cells with detailed status
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct ReloadResult {
-    /// Cells that were successfully reloaded
-    pub reloaded: Vec<CellId>,
-    /// Cells that need re-execution (dependents)
-    pub needs_execution: Vec<CellId>,
-    /// Cells that failed to reload
-    pub failed: Vec<(CellId, Error)>,
-}
+// Note: ReloadResult was removed as unused dead code.
+// If detailed reload status is needed in the future, it can be re-added
+// with fields: reloaded: Vec<CellId>, needs_execution: Vec<CellId>, failed: Vec<(CellId, Error)>
 
-#[allow(dead_code)]
-impl ReloadResult {
-    /// Create a new empty result.
-    pub fn new() -> Self {
-        Self {
-            reloaded: Vec::new(),
-            needs_execution: Vec::new(),
-            failed: Vec::new(),
-        }
-    }
-
-    /// Check if the reload was fully successful.
-    pub fn is_success(&self) -> bool {
-        self.failed.is_empty()
-    }
-}
-
-impl Default for ReloadResult {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_reload_result() {
-        let result = ReloadResult::new();
-        assert!(result.is_success());
-        assert!(result.reloaded.is_empty());
-        assert!(result.needs_execution.is_empty());
-    }
-
-    #[test]
-    fn test_reload_result_with_failure() {
-        let mut result = ReloadResult::new();
-        result
-            .failed
-            .push((CellId::new(0), Error::Execution("test error".to_string())));
-        assert!(!result.is_success());
-    }
-}
+// Note: Tests for ReloadResult removed along with the unused struct.

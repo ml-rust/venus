@@ -211,10 +211,14 @@ impl CellParser {
     }
 
     /// Extract the source code for a function.
+    /// Includes the full function signature and body, excluding doc comments and attributes.
     fn extract_source_code(&self, func: &ItemFn) -> String {
-        let span = func.block.brace_token.span.join();
-        let start = span.start();
-        let end = span.end();
+        // Use the function signature span to get the full function including parameters
+        let sig_span = func.sig.span();
+        let body_span = func.block.brace_token.span.join();
+
+        let start = sig_span.start();
+        let end = body_span.end();
 
         // Get lines of source code
         let lines: Vec<&str> = self.source_code.lines().collect();
@@ -224,7 +228,7 @@ impl CellParser {
             return quote::quote!(#func).to_string();
         }
 
-        // Extract the function source (1-indexed lines)
+        // Extract the function source from signature to end of body (1-indexed lines)
         let func_lines: Vec<&str> = lines
             .iter()
             .skip(start.line - 1)
@@ -423,8 +427,7 @@ impl CellParser {
 
     /// Extract definition blocks (imports, types, helper functions).
     ///
-    /// Groups ALL consecutive definitions into a single block.
-    /// Definitions are split only by markdown cells or executable cells.
+    /// Definitions are split when markdown cells or executable cells appear between them.
     /// Blank lines within definitions do NOT split the block.
     /// Skips items with #[venus::hide] attribute.
     fn extract_definition_blocks(&mut self, file: &File) {
@@ -438,7 +441,7 @@ impl CellParser {
             // Check if this is a definition item (not executable cell or other)
             let is_definition = matches!(
                 item,
-                Item::Use(_) | Item::Struct(_) | Item::Enum(_) | Item::Type(_) | Item::Fn(_)
+                Item::Use(_) | Item::Struct(_) | Item::Enum(_) | Item::Type(_) | Item::Fn(_) | Item::Impl(_)
             );
 
             // Skip items with #[venus::hide]
@@ -447,6 +450,7 @@ impl CellParser {
                 Item::Struct(item_struct) => Self::has_hide_attribute(&item_struct.attrs),
                 Item::Enum(item_enum) => Self::has_hide_attribute(&item_enum.attrs),
                 Item::Type(item_type) => Self::has_hide_attribute(&item_type.attrs),
+                Item::Impl(item_impl) => Self::has_hide_attribute(&item_impl.attrs),
                 Item::Fn(item_fn) => {
                     Self::has_hide_attribute(&item_fn.attrs)
                         || Self::has_cell_attribute(&item_fn.attrs) // Also skip executable cells
@@ -469,6 +473,7 @@ impl CellParser {
                 Item::Struct(s) => self.span_to_source_span(s.span()),
                 Item::Enum(e) => self.span_to_source_span(e.span()),
                 Item::Type(t) => self.span_to_source_span(t.span()),
+                Item::Impl(i) => self.span_to_source_span(i.span()),
                 Item::Fn(f) => self.span_to_source_span(f.span()),
                 _ => unreachable!(),
             };
@@ -476,11 +481,34 @@ impl CellParser {
             // Extract the original source text with proper formatting
             let source_text = self.extract_source_text(span.start_line, span.end_line);
 
-            if block_start_line.is_none() {
+            // Check if there are any markdown or code cells between the last definition and this one
+            // If so, we need to split the definition block here
+            let should_split = if let Some(prev_end) = block_end_line.checked_sub(0).filter(|_| !current_block.is_empty()) {
+                // Check if any markdown cells fall between prev_end and span.start_line
+                let has_markdown_between = self.markdown_cells.iter().any(|md| {
+                    md.span.start_line > prev_end && md.span.start_line < span.start_line
+                });
+
+                // Check if any code cells fall between prev_end and span.start_line
+                let has_code_between = self.cells.iter().any(|cell| {
+                    cell.span.start_line > prev_end && cell.span.start_line < span.start_line
+                });
+
+                has_markdown_between || has_code_between
+            } else {
+                false
+            };
+
+            if should_split {
+                // Flush current block before starting a new one
+                self.flush_definition_block(&mut current_block, block_start_line.unwrap(), block_end_line);
+                current_block.clear();
+                block_start_line = Some(span.start_line);
+            } else if block_start_line.is_none() {
                 block_start_line = Some(span.start_line);
             }
-            block_end_line = span.end_line;
 
+            block_end_line = span.end_line;
             current_block.push(source_text);
         }
 
@@ -508,14 +536,15 @@ impl CellParser {
 
     /// Flush accumulated definition block into a single DefinitionCell.
     fn flush_definition_block(&mut self, block: &mut Vec<String>, start_line: usize, end_line: usize) {
-        use super::types::DefinitionType;
-
         let combined_content = block.join("\n\n");
+
+        // Determine definition type based on content
+        let definition_type = self.infer_definition_type(&combined_content);
 
         let definition_cell = DefinitionCell {
             id: CellId::new(0), // Assigned later by GraphEngine
             content: combined_content,
-            definition_type: DefinitionType::Import, // Generic type for combined blocks
+            definition_type,
             span: SourceSpan {
                 start_line,
                 start_col: 0,
@@ -528,6 +557,91 @@ impl CellParser {
 
         self.definition_cells.push(definition_cell);
         block.clear();
+    }
+
+    /// Infer the definition type from the content.
+    /// Returns the specific type if the block contains only one type of definition,
+    /// otherwise returns Mixed.
+    fn infer_definition_type(&self, content: &str) -> super::types::DefinitionType {
+        use super::types::DefinitionType;
+
+        // Strip out doc comments to avoid false positives
+        let content_no_docs: String = content
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                !trimmed.starts_with("///") && !trimmed.starts_with("//!")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Look for definition keywords at word boundaries (not inside strings/comments)
+        let has_use = content_no_docs.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("use ") || trimmed.starts_with("pub use ")
+        });
+
+        let has_struct = content_no_docs.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("struct ") || trimmed.starts_with("pub struct ")
+        });
+
+        let has_enum = content_no_docs.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("enum ") || trimmed.starts_with("pub enum ")
+        });
+
+        let has_type = content_no_docs.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("type ") || trimmed.starts_with("pub type ")
+        });
+
+        let has_impl = content_no_docs.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("impl ") || trimmed.starts_with("impl<")
+        });
+
+        let has_fn = content_no_docs.lines().any(|line| {
+            let trimmed = line.trim();
+            (trimmed.starts_with("fn ") || trimmed.starts_with("pub fn "))
+                && !content.contains("#[venus::cell]")
+        });
+
+        // Special case: impl blocks contain functions, so if we have impl + fn, that's still just Impl
+        if has_impl && !has_use && !has_struct && !has_enum && !has_type {
+            return DefinitionType::Impl;
+        }
+
+        // Count how many different top-level types we have (excluding fn if impl is present)
+        let type_count = [has_use, has_struct, has_enum, has_type, has_impl, has_fn && !has_impl]
+            .iter()
+            .filter(|&&x| x)
+            .count();
+
+        // If only one type, return that specific type
+        if type_count == 1 {
+            if has_use {
+                return DefinitionType::Import;
+            }
+            if has_struct {
+                return DefinitionType::Struct;
+            }
+            if has_enum {
+                return DefinitionType::Enum;
+            }
+            if has_type {
+                return DefinitionType::TypeAlias;
+            }
+            if has_impl {
+                return DefinitionType::Impl;
+            }
+            if has_fn {
+                return DefinitionType::HelperFunction;
+            }
+        }
+
+        // Multiple types or couldn't determine - use Mixed
+        DefinitionType::Mixed
     }
 }
 
@@ -815,5 +929,69 @@ pub fn config() -> i32 {
             println!("  Content length: {}", md.content.len());
             println!("  Content preview: {:?}", &md.content.chars().take(100).collect::<String>());
         }
+    }
+
+    #[test]
+    fn test_data_analysis_rs_file() {
+        // Parse data-analysis.rs to verify definition cells are properly split
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("../../examples/data-analysis.rs");
+        if !path.exists() {
+            println!("Skipping test - data-analysis.rs not found at {:?}", path);
+            return;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        let result = parse(&source);
+
+        println!("\n=== data-analysis.rs Parse Result ===");
+        println!("Code cells: {}", result.code_cells.len());
+        println!("Markdown cells: {}", result.markdown_cells.len());
+        println!("Definition cells: {}", result.definition_cells.len());
+
+        println!("\n=== Code Cells ===");
+        for (i, cell) in result.code_cells.iter().enumerate() {
+            println!("Cell {}: {} (line {})", i, cell.name, cell.span.start_line);
+        }
+
+        println!("\n=== Markdown Cells ===");
+        for (i, md) in result.markdown_cells.iter().enumerate() {
+            println!("Markdown {}: lines {}-{}", i, md.span.start_line, md.span.end_line);
+            let preview: String = md.content.lines().take(2).collect::<Vec<_>>().join(" / ");
+            println!("  Content: {:?}", preview);
+        }
+
+        println!("\n=== Definition Cells ===");
+        for (i, def) in result.definition_cells.iter().enumerate() {
+            println!("Definition {}: lines {}-{} (type: {:?})", i, def.span.start_line, def.span.end_line, def.definition_type);
+            let preview: String = def.content.lines().take(2).collect::<Vec<_>>().join(" / ");
+            println!("  Content: {:?}", preview);
+        }
+
+        // Expected structure:
+        // Markdown cell: lines 1-11 (module doc)
+        // Definition cell: lines 15-16 (use statements) - Import type
+        // Markdown cell: lines 18 (Data Structures separator)
+        // Definition cell: lines 20-67 (struct definitions) - Struct type
+        // Markdown cell: lines 69 (Cells separator)
+        // Code cells: 75+
+        // Note: impl blocks have #[venus::hide] so they won't appear as definition cells
+
+        // We should have 2 definition cells (imports and structs, impl blocks are hidden)
+        assert_eq!(result.definition_cells.len(), 2, "Expected 2 definition cells, got {}", result.definition_cells.len());
+
+        // First definition cell should be imports (use statements)
+        use crate::graph::DefinitionType;
+        assert_eq!(result.definition_cells[0].definition_type, DefinitionType::Import, "First definition should be Import type");
+
+        // Second definition cell should be structs
+        assert_eq!(result.definition_cells[1].definition_type, DefinitionType::Struct, "Second definition should be Struct type");
+
+        // Check we have the expected code cells
+        assert!(result.code_cells.len() >= 7, "Expected at least 7 code cells, got {}", result.code_cells.len());
+
+        // Verify the specific cells that were reported as broken exist
+        assert!(result.code_cells.iter().any(|c| c.name == "category_analysis"), "category_analysis cell should exist");
+        assert!(result.code_cells.iter().any(|c| c.name == "report"), "report cell should exist");
     }
 }

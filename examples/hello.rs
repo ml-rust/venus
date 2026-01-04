@@ -27,14 +27,8 @@ pub struct Summary {
 pub fn config() -> Config {
     Config {
         name: "Hello Venus".to_string(),
-        iterations: 10,
+        iterations: 5,
     }
-}
-
-/// New cell
-#[venus::cell]
-pub fn new_cell_1() -> String {
-    "Hello".to_string()
 }
 
 /// # Greeting

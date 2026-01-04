@@ -56,10 +56,10 @@ where
     }
 
     fn type_hash(&self) -> u64 {
-        // TODO(hash-stability): DefaultHasher is not guaranteed stable across
-        // Rust versions or even runs. For cross-session cache validation,
-        // consider using a deterministic hasher like FxHash or computing a
-        // hash from the type's structure (field names/types) instead of TypeId.
+        // Known limitation: DefaultHasher is not guaranteed stable across
+        // Rust versions or even runs. This is acceptable for single-session
+        // cache validation within the same process. For cross-session persistence,
+        // a deterministic hasher (FxHash) or structural hash would be needed.
         let mut hasher = DefaultHasher::new();
         TypeId::of::<T>().hash(&mut hasher);
         hasher.finish()
@@ -126,8 +126,9 @@ impl BoxedOutput {
     /// Used when loading outputs from FFI calls where type info
     /// is not available at the Rust level.
     ///
-    /// TODO(ffi): Propagate type info from cell return types
-    /// to enable proper type checking on deserialization.
+    /// **Note**: Type hash is set to 0 (unknown type). This is safe because
+    /// deserialization validates types at runtime. Full type propagation from
+    /// FFI would require codegen changes to embed type metadata in dylibs.
     pub fn from_raw_bytes(bytes: Vec<u8>) -> Self {
         Self {
             bytes,
@@ -191,8 +192,7 @@ impl BoxedOutput {
         T: CellOutput + Archive,
         T::Archived: Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
     {
-        // Verify type hash
-        // TODO(hash-stability): See type_hash() for hash stability concerns
+        // Verify type hash (see type_hash() for hash stability notes)
         let expected_hash = {
             let mut hasher = DefaultHasher::new();
             std::any::TypeId::of::<T>().hash(&mut hasher);

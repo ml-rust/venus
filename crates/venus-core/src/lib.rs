@@ -1,5 +1,28 @@
 //! Core engine for Venus reactive notebook environment.
 //!
+//! # ⚠️ API Stability Warning
+//!
+//! **This crate contains internal APIs that are UNSTABLE and may change without notice.**
+//!
+//! For notebook development, use the `venus` crate instead:
+//! ```rust,ignore
+//! use venus::prelude::*;  // STABLE user-facing API
+//! ```
+//!
+//! The `venus-core` APIs are intended for:
+//! - Building custom notebook tools and extensions
+//! - Advanced integrations with Venus internals
+//! - Contributing to Venus development
+//!
+//! **Stability guarantees:**
+//! - ❌ **No SemVer guarantees** - breaking changes may occur in minor versions (0.x.y)
+//! - ❌ **No deprecation warnings** - APIs may be removed without warning
+//! - ❌ **Internal implementation details** - subject to refactoring
+//!
+//! If you need stable APIs, please open an issue describing your use case.
+//!
+//! ---
+//!
 //! This crate provides:
 //! - Graph engine for dependency resolution
 //! - Compilation pipeline (Cranelift JIT + LLVM)

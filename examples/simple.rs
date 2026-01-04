@@ -19,16 +19,14 @@
 //!
 //! Images: ![Rust Logo](https://www.rust-lang.org/logos/rust-logo-256x256.png)
 
-use serde::{Deserialize, Serialize};
-
 /// Types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub name: String,
     pub count: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Report {
     pub title: String,
     pub values: Vec<i32>,

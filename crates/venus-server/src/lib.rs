@@ -71,12 +71,17 @@ pub async fn serve(notebook_path: impl AsRef<Path>, config: ServerConfig) -> Ser
 
     // Create session with shared interrupt flag
     let (session, _rx) = NotebookSession::new(path, interrupted.clone())?;
+
+    // Get the kill handle from the executor - it's an Arc so it will see
+    // updates when workers are spawned during execution
+    let kill_handle = session.get_kill_handle();
+
     let session = Arc::new(RwLock::new(session));
 
     // Create app state with shared kill handle and interrupt flag
     let state = Arc::new(AppState {
         session: session.clone(),
-        kill_handle: Arc::new(TokioMutex::new(None)),
+        kill_handle: Arc::new(TokioMutex::new(kill_handle)),
         interrupted,
     });
 

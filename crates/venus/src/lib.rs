@@ -6,6 +6,24 @@
 //! - **Fast compilation**: Cranelift JIT for sub-second feedback
 //! - **Hot reload**: Modify code without losing state
 //!
+//! # ✅ API Stability
+//!
+//! **This crate provides the STABLE user-facing API for Venus notebooks.**
+//!
+//! Starting from 0.1.0, the following APIs are considered **stable**:
+//! - `#[venus::cell]` proc macro
+//! - `venus::prelude::*` module
+//! - `Render` trait and its derive macro
+//! - Widget functions (`input_slider`, `input_text`, etc.)
+//!
+//! **Stability guarantees:**
+//! - ✅ **SemVer compliance** - breaking changes only in major versions (1.0, 2.0, etc.)
+//! - ✅ **Deprecation warnings** - minimum 1 minor version warning before removal
+//! - ✅ **Documented migrations** - clear upgrade paths for breaking changes
+//!
+//! For internal APIs (compilation, execution, state management), see the `venus-core` crate,
+//! which is **UNSTABLE** and may change without notice.
+//!
 //! # Quick Start
 //!
 //! ```rust,ignore

@@ -110,8 +110,12 @@ pub enum DefinitionType {
     Enum,
     /// Type alias
     TypeAlias,
+    /// Impl block (trait implementations, methods)
+    Impl,
     /// Helper function (fn without #[venus::cell])
     HelperFunction,
+    /// Mixed definitions (multiple types in one block)
+    Mixed,
 }
 
 /// Complete information about a definition cell.

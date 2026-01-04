@@ -263,4 +263,209 @@ mod tests {
 
         matches!(decoded, WorkerResponse::Loaded);
     }
+
+    #[test]
+    fn test_error_response_roundtrip() {
+        let resp = WorkerResponse::Error {
+            message: "Division by zero".to_string(),
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerResponse::Error { message } => {
+                assert_eq!(message, "Division by zero");
+            }
+            _ => panic!("Wrong response type"),
+        }
+    }
+
+    #[test]
+    fn test_panic_response_roundtrip() {
+        let resp = WorkerResponse::Panic {
+            message: "thread 'main' panicked at 'assertion failed'".to_string(),
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerResponse::Panic { message } => {
+                assert!(message.contains("panicked"));
+            }
+            _ => panic!("Wrong response type"),
+        }
+    }
+
+    #[test]
+    fn test_shutdown_command() {
+        let cmd = WorkerCommand::Shutdown;
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &cmd).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
+
+        matches!(decoded, WorkerCommand::Shutdown);
+    }
+
+    #[test]
+    fn test_shutting_down_response() {
+        let resp = WorkerResponse::ShuttingDown;
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        matches!(decoded, WorkerResponse::ShuttingDown);
+    }
+
+    #[test]
+    fn test_ping_pong() {
+        let cmd = WorkerCommand::Ping;
+
+        let mut cmd_buf = Vec::new();
+        write_message(&mut cmd_buf, &cmd).unwrap();
+
+        let mut cursor = Cursor::new(cmd_buf);
+        let decoded_cmd: WorkerCommand = read_message(&mut cursor).unwrap();
+        assert!(matches!(decoded_cmd, WorkerCommand::Ping));
+
+        let resp = WorkerResponse::Pong;
+
+        let mut resp_buf = Vec::new();
+        write_message(&mut resp_buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(resp_buf);
+        let decoded_resp: WorkerResponse = read_message(&mut cursor).unwrap();
+        assert!(matches!(decoded_resp, WorkerResponse::Pong));
+    }
+
+    #[test]
+    fn test_output_with_widgets() {
+        let resp = WorkerResponse::Output {
+            bytes: vec![1, 2, 3, 4, 5],
+            widgets_json: b"{\"slider_1\": {\"type\": \"slider\", \"value\": 50}}".to_vec(),
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerResponse::Output { bytes, widgets_json } => {
+                assert_eq!(bytes, vec![1, 2, 3, 4, 5]);
+                assert!(!widgets_json.is_empty());
+                assert!(std::str::from_utf8(&widgets_json).unwrap().contains("slider"));
+            }
+            _ => panic!("Wrong response type"),
+        }
+    }
+
+    #[test]
+    fn test_execute_with_widget_values() {
+        let cmd = WorkerCommand::Execute {
+            inputs: vec![vec![1, 2, 3]],
+            widget_values_json: b"{\"slider_1\": 75}".to_vec(),
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &cmd).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerCommand::Execute { inputs, widget_values_json } => {
+                assert_eq!(inputs.len(), 1);
+                assert!(!widget_values_json.is_empty());
+                assert!(std::str::from_utf8(&widget_values_json).unwrap().contains("75"));
+            }
+            _ => panic!("Wrong command type"),
+        }
+    }
+
+    #[test]
+    fn test_large_output() {
+        // Test with a large output (1MB)
+        let large_bytes: Vec<u8> = (0..1_000_000).map(|i| (i % 256) as u8).collect();
+
+        let resp = WorkerResponse::Output {
+            bytes: large_bytes.clone(),
+            widgets_json: vec![],
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerResponse::Output { bytes, .. } => {
+                assert_eq!(bytes.len(), 1_000_000);
+                assert_eq!(bytes[0], 0);
+                assert_eq!(bytes[255], 255);
+                assert_eq!(bytes[999_999], 63); // 999_999 % 256 = 63
+            }
+            _ => panic!("Wrong response type"),
+        }
+    }
+
+    #[test]
+    fn test_empty_error_message() {
+        // Edge case: error with empty message
+        let resp = WorkerResponse::Error {
+            message: String::new(),
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &resp).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerResponse::Error { message } => {
+                assert!(message.is_empty());
+            }
+            _ => panic!("Wrong response type"),
+        }
+    }
+
+    #[test]
+    fn test_unicode_in_messages() {
+        let cmd = WorkerCommand::LoadCell {
+            dylib_path: "/tmp/测试_cell.so".to_string(),
+            dep_count: 0,
+            entry_symbol: "entry_测试".to_string(),
+            name: "测试_cell_🚀".to_string(),
+        };
+
+        let mut buf = Vec::new();
+        write_message(&mut buf, &cmd).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
+
+        match decoded {
+            WorkerCommand::LoadCell { dylib_path, name, .. } => {
+                assert!(dylib_path.contains("测试"));
+                assert!(name.contains("🚀"));
+            }
+            _ => panic!("Wrong command type"),
+        }
+    }
 }

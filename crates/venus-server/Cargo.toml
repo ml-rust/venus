@@ -39,6 +39,9 @@ anyhow.workspace = true
 # Logging
 tracing.workspace = true
 
+# Hashing
+rustc-hash.workspace = true
+
 # Globals (process cleanup)
 libc.workspace = true
 

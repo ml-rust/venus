@@ -4,6 +4,7 @@
 //! compilation, execution, and output caching.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -122,6 +123,10 @@ pub struct NotebookSession {
 
     /// Undo/redo manager for cell operations.
     undo_manager: UndoManager,
+
+    /// Pending edits from the editor (not yet saved to disk).
+    /// These are saved to disk when the cell is executed.
+    pending_edits: HashMap<CellId, String>,
 }
 
 /// Maximum number of history entries per cell.
@@ -195,6 +200,7 @@ impl NotebookSession {
             cell_output_history: HashMap::new(),
             cell_history_index: HashMap::new(),
             undo_manager: UndoManager::new(),
+            pending_edits: HashMap::new(),
         };
 
         session.reload()?;
@@ -336,7 +342,8 @@ impl NotebookSession {
             let (status, output, dirty) = if let Some(CellState::Code { status, output, dirty, .. }) = existing {
                 (*status, output.clone(), *dirty)
             } else {
-                (CellStatus::default(), None, true)
+                // New cells start pristine: no output, not dirty
+                (CellStatus::default(), None, false)
             };
 
             let state = CellState::Code {
@@ -471,21 +478,46 @@ impl NotebookSession {
         }
     }
 
+    /// Store a pending edit from the editor (not yet saved to disk).
+    ///
+    /// The edit will be saved to disk when the cell is executed.
+    pub fn store_pending_edit(&mut self, cell_id: CellId, source: String) {
+        self.pending_edits.insert(cell_id, source);
+    }
+
     /// Execute a specific cell.
     ///
     /// Uses process isolation - the cell runs in a worker process that can
     /// be killed immediately for interruption.
     pub async fn execute_cell(&mut self, cell_id: CellId) -> ServerResult<()> {
+        // Get cell name before potential reload (IDs change after reload!)
+        let cell_name = self
+            .get_cell(cell_id)
+            .map(|c| c.name.clone())
+            .ok_or(ServerError::CellNotFound(cell_id))?;
+
+        // Save pending edit to disk before executing
+        if let Some(new_source) = self.pending_edits.remove(&cell_id) {
+            self.edit_cell(cell_id, new_source)?;
+        }
         if self.executing {
             return Err(ServerError::ExecutionInProgress);
         }
 
+        // After reload(), cell IDs change! Find cell by name instead
         let cell = self
-            .get_cell(cell_id)
+            .cells
+            .iter()
+            .find(|c| c.name == cell_name)
             .ok_or(ServerError::CellNotFound(cell_id))?
             .clone();
 
+        let cell_id = cell.id; // Use the NEW ID after reload
+
         self.executing = true;
+
+        // Reset interrupted flag at the start of each execution
+        self.interrupted.store(false, Ordering::SeqCst);
 
         // Check if all dependencies have outputs available
         let missing_deps: Vec<&str> = cell
@@ -567,6 +599,12 @@ impl NotebookSession {
 
                 match exec_result {
                     Ok((output, widgets_json)) => {
+                        // Check if output changed (for smart dirty marking)
+                        let old_hash = self.cell_outputs.get(&cell_id)
+                            .map(|old| Self::output_hash(old));
+                        let new_hash = Self::output_hash(&output);
+                        let output_changed = old_hash.is_none_or(|h| h != new_hash);
+
                         // Store output for dependent cells
                         let output_arc = Arc::new(output);
                         self.cell_outputs.insert(cell_id, output_arc.clone());
@@ -597,6 +635,14 @@ impl NotebookSession {
                             state.set_status(CellStatus::Success);
                             state.set_output(Some(cell_output.clone()));
                             state.set_dirty(false);
+                        }
+
+                        // Mark dependents dirty if output changed
+                        if output_changed {
+                            let dirty_cells = self.mark_dependents_dirty_and_get(cell_id);
+                            for dirty_id in dirty_cells {
+                                self.broadcast(ServerMessage::CellDirty { cell_id: dirty_id });
+                            }
                         }
 
                         self.broadcast(ServerMessage::CellCompleted {
@@ -675,16 +721,24 @@ impl NotebookSession {
     }
 
     /// Mark a cell as dirty (needs re-execution).
+    ///
+    /// Only marks cells as dirty if they have existing output (data).
+    /// Cells without output remain pristine (no border).
     pub fn mark_dirty(&mut self, cell_id: CellId) {
-        if let Some(state) = self.cell_states.get_mut(&cell_id) {
-            state.set_dirty(true);
+        // Mark the edited cell as dirty only if it has output
+        if self.cell_outputs.contains_key(&cell_id) {
+            if let Some(state) = self.cell_states.get_mut(&cell_id) {
+                state.set_dirty(true);
+            }
         }
 
-        // Also mark dependents as dirty
+        // Also mark dependents as dirty (only those with output)
         let dependents = self.graph.invalidated_cells(cell_id);
         for dep_id in dependents {
-            if let Some(state) = self.cell_states.get_mut(&dep_id) {
-                state.set_dirty(true);
+            if self.cell_outputs.contains_key(&dep_id) {
+                if let Some(state) = self.cell_states.get_mut(&dep_id) {
+                    state.set_dirty(true);
+                }
             }
         }
     }
@@ -798,13 +852,18 @@ impl NotebookSession {
     /// - Widget values
     /// - Cell source code
     ///
-    /// All cells are marked as needing re-execution (dirty).
+    /// All cells are reset to pristine state (no output, not dirty).
     pub fn clear_outputs(&mut self) {
-        // Clear outputs from cell states
+        // Clear outputs from cell states - back to pristine (not dirty)
         for state in self.cell_states.values_mut() {
             state.clear_output();
-            state.set_dirty(true); // Mark as needing re-execution
+            state.set_dirty(false); // Pristine - no data, no dirty
+            state.set_status(CellStatus::Idle);
         }
+
+        // Clear cached outputs
+        self.cell_outputs.clear();
+        let _ = self.executor.state_mut().clear();
 
         // Clear output history
         self.cell_output_history.clear();
@@ -931,22 +990,40 @@ impl NotebookSession {
         self.cell_history_index.insert(cell_id, index);
 
         // Mark dependent cells as dirty
-        self.mark_dependents_dirty(cell_id);
+        let _ = self.mark_dependents_dirty_and_get(cell_id);
 
         Some(display)
     }
 
     /// Mark all cells that depend on the given cell as dirty.
-    fn mark_dependents_dirty(&mut self, cell_id: CellId) {
+    ///
+    /// Only marks cells that have existing output (data). Cells without
+    /// output remain pristine (no border) since they haven't been executed yet.
+    /// Returns the list of cells that were marked dirty.
+    fn mark_dependents_dirty_and_get(&mut self, cell_id: CellId) -> Vec<CellId> {
         // Use the graph's invalidated_cells which returns all dependents
         let dependents = self.graph.invalidated_cells(cell_id);
+        let mut dirty_cells = Vec::new();
 
         // Skip the first one (the changed cell itself) and mark the rest as dirty
+        // BUT only if they have output (data) - pristine cells stay pristine
         for dep_id in dependents.into_iter().skip(1) {
-            if let Some(state) = self.cell_states.get_mut(&dep_id) {
-                state.set_dirty(true);
+            // Only mark dirty if cell has output (has been executed before)
+            if self.cell_outputs.contains_key(&dep_id) {
+                if let Some(state) = self.cell_states.get_mut(&dep_id) {
+                    state.set_dirty(true);
+                    dirty_cells.push(dep_id);
+                }
             }
         }
+        dirty_cells
+    }
+
+    /// Compute a hash of output bytes for change detection.
+    fn output_hash(output: &BoxedOutput) -> u64 {
+        let mut hasher = rustc_hash::FxHasher::default();
+        output.bytes().hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Get history count for a cell.
@@ -1099,6 +1176,59 @@ impl NotebookSession {
 
         // Reload to update in-memory state
         self.reload()?;
+
+        Ok(())
+    }
+
+    /// Edit a code cell's source.
+    ///
+    /// Modifies the .rs source file and reloads the notebook.
+    pub fn edit_cell(&mut self, cell_id: CellId, new_source: String) -> ServerResult<()> {
+        // Find the cell
+        let cell = self.cells
+            .iter()
+            .find(|c| c.id == cell_id)
+            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+
+        let cell_name = cell.name.clone();
+        let old_source = cell.source_code.clone();
+
+        // Load and edit the source file
+        let mut editor = SourceEditor::load(&self.path)?;
+
+        // Reconstruct complete cell (doc comments + #[venus::cell] + function) and get FRESH line numbers
+        let (reconstructed, start_line, end_line) = editor.reconstruct_and_get_span(&cell_name, &new_source)?;
+
+        tracing::info!("Editing cell '{}' lines {}-{}, reconstructed length: {}", cell_name, start_line, end_line, reconstructed.len());
+        editor.edit_raw_code(start_line, end_line, &reconstructed)?;
+        editor.save()?;
+
+        // Record for undo
+        self.undo_manager.record(UndoableOperation::EditCell {
+            cell_id,
+            start_line,
+            end_line,
+            old_source,
+            new_source: new_source.clone(),
+        });
+
+        // Reload to update in-memory state
+        // Save outputs by name BEFORE reload (IDs will change)
+        let outputs_by_name: HashMap<String, Arc<BoxedOutput>> = self.cells.iter()
+            .filter_map(|c| self.cell_outputs.get(&c.id).map(|o| (c.name.clone(), o.clone())))
+            .collect();
+
+        self.reload()?;
+
+        // Restore outputs with NEW IDs (except for the edited cell)
+        self.cell_outputs.clear();
+        for cell in &self.cells {
+            if cell.name != cell_name {
+                if let Some(output) = outputs_by_name.get(&cell.name) {
+                    self.cell_outputs.insert(cell.id, output.clone());
+                }
+            }
+        }
 
         Ok(())
     }
@@ -1426,8 +1556,11 @@ impl NotebookSession {
         // Reload to update in-memory state (rebuilds universe with new definitions)
         self.reload()?;
 
-        // Mark ALL executable cells as dirty (any cell could use the definitions)
-        let dirty_cells: Vec<CellId> = self.cells.iter().map(|c| c.id).collect();
+        // Mark ALL executable cells as dirty (only if they have output - pristine cells stay pristine)
+        let dirty_cells: Vec<CellId> = self.cells.iter()
+            .filter(|c| self.cell_outputs.contains_key(&c.id))  // Only cells with output
+            .map(|c| c.id)
+            .collect();
         for &cell_id in &dirty_cells {
             if let Some(state) = self.cell_states.get_mut(&cell_id) {
                 state.set_dirty(true);
@@ -1539,6 +1672,10 @@ impl NotebookSession {
                 // Undo rename = restore old display name
                 editor.rename_cell(cell_name, old_display_name)?;
             }
+            UndoableOperation::EditCell { start_line, end_line, old_source, .. } => {
+                // Undo edit = restore old source
+                editor.edit_raw_code(*start_line, *end_line, old_source)?;
+            }
             UndoableOperation::InsertMarkdownCell { start_line, end_line, .. } => {
                 // Undo insert markdown = delete it
                 editor.delete_markdown_cell(*start_line, *end_line)?;
@@ -1626,6 +1763,10 @@ impl NotebookSession {
             UndoableOperation::RenameCell { cell_name, new_display_name, .. } => {
                 // Redo rename = apply new display name again
                 editor.rename_cell(cell_name, new_display_name)?;
+            }
+            UndoableOperation::EditCell { start_line, end_line, new_source, .. } => {
+                // Redo edit = apply new source again
+                editor.edit_raw_code(*start_line, *end_line, new_source)?;
             }
             UndoableOperation::InsertMarkdownCell { start_line, content, .. } => {
                 // Redo insert markdown = insert again at original position

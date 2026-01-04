@@ -762,7 +762,7 @@ impl SourceEditor {
 
     /// Find the span of a cell (start line to end line, 1-indexed).
     /// Includes doc comments and attributes above the function.
-    fn find_cell_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
+    pub fn find_cell_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
         for item in &file.items {
             if let syn::Item::Fn(func) = item
                 && Self::has_cell_attribute(&func.attrs) {
@@ -788,6 +788,81 @@ impl SourceEditor {
         }
 
         Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+    }
+
+    /// Find just the function span (NOT doc comments) for editing.
+    pub fn find_function_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
+        for item in &file.items {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
+                    let name = func.sig.ident.to_string();
+                    if name == cell_name {
+                        // Start from pub fn, NOT doc comments
+                        let start_line = func.sig.fn_token.span.start().line;
+                        let end_line = func.block.brace_token.span.close().end().line;
+                        return Ok((start_line, end_line));
+                    }
+                }
+        }
+
+        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+    }
+
+    /// Extract existing doc comments for a cell.
+    /// Returns them in "/// comment" format, preserving original formatting.
+    pub fn extract_doc_comments(&self, cell_name: &str) -> Result<Vec<String>> {
+        let file: SynFile = syn::parse_str(&self.content)
+            .map_err(|e| Error::Parse(e.to_string()))?;
+
+        for item in &file.items {
+            if let syn::Item::Fn(func) = item
+                && Self::has_cell_attribute(&func.attrs) {
+                    let name = func.sig.ident.to_string();
+                    if name == cell_name {
+                        let mut doc_lines = Vec::new();
+                        for attr in &func.attrs {
+                            if attr.path().is_ident("doc") {
+                                if let syn::Meta::NameValue(meta) = &attr.meta {
+                                    if let syn::Expr::Lit(lit) = &meta.value {
+                                        if let syn::Lit::Str(s) = &lit.lit {
+                                            // syn stores doc comments without the leading space
+                                            // e.g., /// Hello -> doc = " Hello"
+                                            doc_lines.push(format!("///{}", s.value()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return Ok(doc_lines);
+                    }
+                }
+        }
+
+        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+    }
+
+    /// Reconstruct a complete cell including doc comments and attributes.
+    /// Returns the full cell text: doc comments + #[venus::cell] + function.
+    pub fn reconstruct_cell(&self, cell_name: &str, new_function: &str) -> Result<String> {
+        let doc_comments = self.extract_doc_comments(cell_name)?;
+
+        if !doc_comments.is_empty() {
+            Ok(format!("{}\n#[venus::cell]\n{}", doc_comments.join("\n"), new_function))
+        } else {
+            Ok(format!("#[venus::cell]\n{}", new_function))
+        }
+    }
+
+    /// Reconstruct a cell and get its line span in one call.
+    /// Returns (reconstructed_text, start_line, end_line).
+    pub fn reconstruct_and_get_span(&self, cell_name: &str, new_function: &str) -> Result<(String, usize, usize)> {
+        let file: SynFile = syn::parse_str(&self.content)
+            .map_err(|e| Error::Parse(e.to_string()))?;
+
+        let reconstructed = self.reconstruct_cell(cell_name, new_function)?;
+        let (start_line, end_line) = self.find_cell_span(&file, cell_name)?;
+
+        Ok((reconstructed, start_line, end_line))
     }
 
     /// Get the byte offset at the start of a line (1-indexed).

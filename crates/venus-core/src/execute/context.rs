@@ -88,33 +88,8 @@ pub trait ExecutionCallback: Send + Sync {
     fn on_level_completed(&self, _level: usize) {}
 }
 
-/// Simple logging callback implementation.
-///
-/// TODO(cli): Use this in venus-cli for progress output
-#[allow(dead_code)]
-pub struct LoggingCallback;
-
-impl ExecutionCallback for LoggingCallback {
-    fn on_cell_started(&self, cell_id: CellId, name: &str) {
-        tracing::info!("Executing cell {:?}: {}", cell_id, name);
-    }
-
-    fn on_cell_completed(&self, cell_id: CellId, name: &str) {
-        tracing::info!("Completed cell {:?}: {}", cell_id, name);
-    }
-
-    fn on_cell_error(&self, cell_id: CellId, name: &str, error: &Error) {
-        tracing::error!("Cell {:?} ({}) failed: {}", cell_id, name, error);
-    }
-
-    fn on_level_started(&self, level: usize, cell_count: usize) {
-        tracing::info!("Starting level {} with {} cells", level, cell_count);
-    }
-
-    fn on_level_completed(&self, level: usize) {
-        tracing::info!("Completed level {}", level);
-    }
-}
+// Note: LoggingCallback was removed as unused dead code.
+// Users can implement ExecutionCallback trait directly for custom logging.
 
 /// Execution context for a running cell.
 ///
@@ -197,19 +172,8 @@ impl Drop for CellContext {
     }
 }
 
-/// Thread-safe wrapper for sharing context across threads.
-///
-/// TODO(parallel): Use this for thread-safe context access in ParallelExecutor
-#[allow(dead_code)]
-pub type SharedContext = Arc<std::sync::Mutex<CellContext>>;
-
-/// Create a new shared context.
-///
-/// TODO(parallel): Use this for thread-safe context access in ParallelExecutor
-#[allow(dead_code)]
-pub fn shared_context(cell_id: CellId, name: String) -> SharedContext {
-    Arc::new(std::sync::Mutex::new(CellContext::new(cell_id, name)))
-}
+// Note: SharedContext types were removed as unused dead code.
+// ParallelExecutor uses LinearExecutor internally with a Mutex, which is sufficient for current needs.
 
 #[cfg(test)]
 mod tests {

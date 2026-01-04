@@ -26,13 +26,10 @@ use venus_core::graph::CellId;
 
 use crate::lsp;
 use crate::protocol::{CellState, ClientMessage, ServerMessage};
-use crate::session::NotebookSession;
+use crate::session::{InterruptFlag, NotebookSession};
 
 #[cfg(feature = "embedded-frontend")]
 use crate::embedded_frontend;
-
-// Re-export InterruptFlag from session module
-pub use crate::session::InterruptFlag;
 
 /// Application state shared across handlers.
 pub struct AppState {
@@ -197,20 +194,27 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
 
     // Handle incoming client messages
     while let Some(result) = receiver.next().await {
+        tracing::debug!("Received WebSocket message");
         match result {
-            Ok(Message::Text(text)) => match serde_json::from_str::<ClientMessage>(&text) {
-                Ok(msg) => handle_client_message(msg, &state, &sender).await,
-                Err(e) => {
-                    tracing::warn!("Failed to parse client message: {} (input: {})", e, text);
-                    send_message(
-                        &sender,
-                        &ServerMessage::Error {
-                            message: format!("Invalid message format: {}", e),
-                        },
-                    )
-                    .await;
+            Ok(Message::Text(text)) => {
+                tracing::debug!("Parsing message: {}", &text[..text.len().min(100)]);
+                match serde_json::from_str::<ClientMessage>(&text) {
+                    Ok(msg) => {
+                        tracing::debug!("Dispatching message: {:?}", std::mem::discriminant(&msg));
+                        handle_client_message(msg, &state, &sender).await;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse client message: {} (input: {})", e, text);
+                        send_message(
+                            &sender,
+                            &ServerMessage::Error {
+                                message: format!("Invalid message format: {}", e),
+                            },
+                        )
+                        .await;
+                    }
                 }
-            },
+            }
             Ok(Message::Close(_)) => break,
             Err(e) => {
                 tracing::warn!("WebSocket error: {}", e);
@@ -277,8 +281,6 @@ async fn handle_cell_operation<T, F, R>(
             send_message(sender, &msg).await;
         }
     };
-
-    
 }
 
 /// Handle a client message.
@@ -295,22 +297,13 @@ async fn handle_client_message(
         }
 
         ClientMessage::ExecuteCell { cell_id } => {
-            // Spawn execution in a separate task so interrupt messages can be processed
+            // Spawn execution in a separate task so interrupt can be processed
             let state_clone = state.clone();
 
             tokio::spawn(async move {
-                // Get the kill handle before acquiring session lock
-                {
-                    let session = state_clone.session.read().await;
-                    let kill_handle = session.get_kill_handle();
-                    *state_clone.kill_handle.lock().await = kill_handle;
-                }
-
                 // Use spawn_blocking because execute_cell does synchronous IPC
-                // which would otherwise block the tokio runtime
                 let state_for_blocking = state_clone.clone();
                 let exec_result = tokio::task::spawn_blocking(move || {
-                    // We need to enter the tokio runtime context for async operations
                     let rt = tokio::runtime::Handle::current();
                     rt.block_on(async {
                         let mut session = state_for_blocking.session.write().await;
@@ -318,16 +311,10 @@ async fn handle_client_message(
                     })
                 }).await;
 
-                // Clear kill handle after execution
-                *state_clone.kill_handle.lock().await = None;
-
-                // Session handles interrupt detection and sends appropriate messages.
-                // We only need to handle unexpected task-level errors here.
                 match exec_result {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => {
-                        // Session already sent the appropriate message (CellError or ExecutionAborted)
-                        tracing::debug!("Execution returned error (already handled by session): {}", e);
+                        tracing::debug!("Execution error: {}", e);
                     }
                     Err(e) => {
                         tracing::error!("Task join error: {}", e);
@@ -337,15 +324,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::ExecuteAll => {
-            // Get kill handle BEFORE spawning - the Arc inside is shared with executor
-            // so it will be updated when the worker actually starts
-            {
-                let session = state.session.read().await;
-                let kill_handle = session.get_kill_handle();
-                *state.kill_handle.lock().await = kill_handle;
-            }
-
-            // Spawn execution in a separate task so the WebSocket can still process messages
+            // Spawn execution in a separate task so interrupt can be processed
             let state_clone = state.clone();
 
             tokio::spawn(async move {
@@ -359,13 +338,10 @@ async fn handle_client_message(
                     })
                 }).await;
 
-                // Clear kill handle after execution
-                *state_clone.kill_handle.lock().await = None;
-
                 match exec_result {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => {
-                        tracing::error!("Execution error: {}", e);
+                        tracing::debug!("Execution error: {}", e);
                     }
                     Err(e) => {
                         tracing::error!("Task join error: {}", e);
@@ -375,23 +351,15 @@ async fn handle_client_message(
         }
 
         ClientMessage::ExecuteDirty => {
-            // Get dirty cells and kill handle BEFORE spawning
-            let dirty_cells = {
-                let session = state.session.read().await;
-                session.get_dirty_cell_ids()
-            };
-
-            // Get kill handle synchronously - the Arc inside is shared with executor
-            {
-                let session = state.session.read().await;
-                let kill_handle = session.get_kill_handle();
-                *state.kill_handle.lock().await = kill_handle;
-            }
-
-            // Spawn execution in a separate task so the WebSocket can still process messages
+            // Spawn execution in a separate task so interrupt can be processed
             let state_clone = state.clone();
 
             tokio::spawn(async move {
+                let dirty_cells = {
+                    let session = state_clone.session.read().await;
+                    session.get_dirty_cell_ids()
+                };
+
                 // Use spawn_blocking for each cell execution
                 for cell_id in dirty_cells {
                     let state_for_blocking = state_clone.clone();
@@ -406,34 +374,36 @@ async fn handle_client_message(
                     match exec_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            tracing::error!("Execution error for {:?}: {}", cell_id, e);
+                            tracing::debug!("Execution error for {:?}: {}", cell_id, e);
                         }
                         Err(e) => {
                             tracing::error!("Task join error for {:?}: {}", cell_id, e);
                         }
                     }
                 }
-
-                // Clear kill handle after execution
-                *state_clone.kill_handle.lock().await = None;
             });
         }
 
-        ClientMessage::CellEdit { cell_id, .. } => {
+        ClientMessage::CellEdit { cell_id, source } => {
+            // Store the edited source in memory (don't save to disk yet)
+            // It will be saved when the user clicks RUN
             let mut session = state.session.write().await;
-            session.mark_dirty(cell_id);
+            session.store_pending_edit(cell_id, source);
         }
 
         ClientMessage::Interrupt => {
+            tracing::debug!("Received interrupt request from client");
             // Use the kill handle directly - doesn't need session lock!
             // This allows interrupt to work even while execute_cell holds the write lock.
             let kill_handle = state.kill_handle.lock().await;
             if let Some(ref handle) = *kill_handle {
-                tracing::info!("Killing worker process via interrupt request");
+                tracing::debug!("Killing worker process via interrupt request");
                 // Set interrupted flag so session shows friendly message instead of error
                 state.interrupted.store(true, Ordering::SeqCst);
                 handle.kill();
+                tracing::debug!("Kill signal sent to worker");
             } else {
+                tracing::warn!("Interrupt received but no kill handle available");
                 send_message(
                     sender,
                     &ServerMessage::Error {

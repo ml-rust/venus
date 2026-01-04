@@ -2,9 +2,6 @@
 //!
 //! This cell will run forever unless killed via process isolation.
 
-//! [dependencies]
-//! # No dependencies needed
-
 use venus::prelude::*;
 
 /// This cell loops forever - tests process isolation interrupt.

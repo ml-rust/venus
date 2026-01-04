@@ -208,6 +208,12 @@ pub enum ServerMessage {
         output: Option<CellOutput>,
     },
 
+    /// Cell marked as dirty (needs re-execution because upstream changed).
+    CellDirty {
+        /// Cell that is now dirty.
+        cell_id: CellId,
+    },
+
     /// Cell execution failed.
     CellError {
         /// Cell that failed.

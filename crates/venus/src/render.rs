@@ -250,9 +250,10 @@ mod polars_impl {
             for row_idx in 0..display_rows {
                 html.push_str("<tr>");
                 for col in columns.iter() {
-                    // Use str_value which returns Result, handle gracefully
+                    // Use get which returns Result<AnyValue>, handle gracefully
                     let value = col
-                        .str_value(row_idx)
+                        .get(row_idx)
+                        .map(|v| v.to_string())
                         .unwrap_or_else(|_| "[error]".to_string());
                     html.push_str(&format!("<td>{}</td>", html_escape(&value)));
                 }
@@ -283,8 +284,8 @@ mod polars_impl {
             for col in self.get_columns() {
                 let values: Vec<serde_json::Value> = (0..col.len())
                     .map(|i| {
-                        col.str_value(i)
-                            .map(|s| serde_json::Value::String(s))
+                        col.get(i)
+                            .map(|v| serde_json::Value::String(v.to_string()))
                             .unwrap_or(serde_json::Value::Null)
                     })
                     .collect();
@@ -346,7 +347,7 @@ mod image_impl {
         const ALPHABET: &[u8; 64] =
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-        let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+        let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
 
         for chunk in data.chunks(3) {
             let b0 = chunk[0] as usize;

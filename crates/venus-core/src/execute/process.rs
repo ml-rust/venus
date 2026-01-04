@@ -59,10 +59,19 @@ impl ExecutorKillHandle {
     ///
     /// If no cell is executing, this is a no-op.
     pub fn kill(&self) {
-        if let Ok(guard) = self.inner.lock()
-            && let Some(ref kill_handle) = *guard {
-                kill_handle.kill();
+        match self.inner.lock() {
+            Ok(guard) => {
+                if let Some(ref kill_handle) = *guard {
+                    tracing::info!("ExecutorKillHandle: found worker kill handle, calling kill()");
+                    kill_handle.kill();
+                } else {
+                    tracing::warn!("ExecutorKillHandle: inner is None (worker not spawned or already finished)");
+                }
             }
+            Err(e) => {
+                tracing::error!("ExecutorKillHandle: failed to lock mutex: {}", e);
+            }
+        }
     }
 }
 
@@ -267,16 +276,14 @@ impl ProcessExecutor {
 
     /// Parse output bytes from worker into BoxedOutput.
     ///
-    /// Output format from cells:
+    /// Output format (after worker strips widget data):
     /// - display_len (8 bytes, u64 LE): length of display string
     /// - display_bytes (N bytes): display string (UTF-8)
-    /// - widgets_len (8 bytes, u64 LE): length of widgets JSON
-    /// - widgets_json (M bytes): JSON-encoded widget definitions
     /// - rkyv_data (remaining bytes): rkyv-serialized data
     fn parse_output_bytes(&self, bytes: &[u8], cell_name: &str) -> Result<BoxedOutput> {
-        if bytes.len() < 16 {
+        if bytes.len() < 8 {
             return Err(Error::Execution(format!(
-                "Cell {} output too short: {} bytes",
+                "Cell {} output too short: {} bytes (need at least 8 for header)",
                 cell_name,
                 bytes.len()
             )));

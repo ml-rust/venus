@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use libloading::Symbol;
+use tracing::{debug, trace, warn};
 
 use crate::compile::CompiledCell;
 use crate::error::{Error, Result};
@@ -301,8 +302,20 @@ impl LinearExecutor {
         // Empty widget values (LinearExecutor doesn't support widgets)
         let widget_values: &[u8] = &[];
 
-        // TODO(ffi): Consider using libffi for truly dynamic dispatch
-        // to support arbitrary numbers of dependencies without match arms.
+        debug!(
+            cell = %loaded.compiled.name,
+            dep_count = inputs.len(),
+            "Calling FFI entry point"
+        );
+        trace!(
+            cell = %loaded.compiled.name,
+            input_sizes = ?inputs.iter().map(|i| i.bytes().len()).collect::<Vec<_>>(),
+            "Input buffer sizes (bytes)"
+        );
+
+        // Implementation note: Uses match arms for 1-10 dependencies.
+        // libffi could support arbitrary counts but adds complexity and overhead.
+        // Current limit (10 dependencies) is sufficient for typical notebook cells.
         match inputs.len() {
             1 => call_cell_n_deps!(self, loaded, symbol_name, inputs, widget_values, EntryFn1, 0),
             2 => call_cell_n_deps!(self, loaded, symbol_name, inputs, widget_values, EntryFn2, 0, 1),
@@ -420,17 +433,39 @@ impl LinearExecutor {
                     )));
                 }
 
-                // Worker already stripped widgets_len and widgets_json
-                // Format is: display_len | display_bytes | rkyv_data
+                // Read widgets_len
+                let widgets_len_bytes: [u8; 8] = bytes[display_end..display_end + 8].try_into().map_err(|_| {
+                    Error::Execution(format!(
+                        "Cell {} output has malformed widgets_len field",
+                        cell_name
+                    ))
+                })?;
+                let widgets_len = u64::from_le_bytes(widgets_len_bytes) as usize;
+                let widgets_end = display_end + 8 + widgets_len;
+
+                if bytes.len() < widgets_end {
+                    return Err(Error::Execution(format!(
+                        "Cell {} output too short for widget data",
+                        cell_name
+                    )));
+                }
+
+                // Format is: display_len | display_bytes | widgets_len | widgets_json | rkyv_data
                 let display_text = String::from_utf8_lossy(&bytes[8..display_end]).to_string();
-                let rkyv_data = bytes[display_end..].to_vec();
+                let rkyv_data = bytes[widgets_end..].to_vec();
 
                 Ok(BoxedOutput::from_raw_bytes_with_display(rkyv_data, display_text))
             }
-            ExecutionResult::DeserializationError => Err(Error::Execution(format!(
-                "Cell {} failed to deserialize input",
-                cell_name
-            ))),
+            ExecutionResult::DeserializationError => {
+                warn!(
+                    cell = %cell_name,
+                    "Cell failed to deserialize input - likely type mismatch. Enable RUST_LOG=debug for details."
+                );
+                Err(Error::Execution(format!(
+                    "Cell {} failed to deserialize input - check dependency types match parameter types. Run with RUST_LOG=venus=debug for details.",
+                    cell_name
+                )))
+            }
             ExecutionResult::CellError => Err(Error::Execution(format!(
                 "Cell {} returned an error",
                 cell_name
@@ -456,5 +491,115 @@ mod tests {
         let temp = tempfile::TempDir::new().unwrap();
         let executor = LinearExecutor::new(temp.path()).unwrap();
         assert!(executor.cells.is_empty());
+        assert!(executor.callback.is_none());
+        assert!(executor.abort_handle.is_none());
+    }
+
+    #[test]
+    fn test_with_state_creation() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let state = StateManager::new(temp.path()).unwrap();
+        let executor = LinearExecutor::with_state(state);
+        assert!(executor.cells.is_empty());
+    }
+
+    #[test]
+    fn test_set_callback() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut executor = LinearExecutor::new(temp.path()).unwrap();
+
+        struct TestCallback;
+        impl ExecutionCallback for TestCallback {
+            fn on_cell_started(&self, _: CellId, _: &str) {}
+            fn on_cell_completed(&self, _: CellId, _: &str) {}
+            fn on_cell_error(&self, _: CellId, _: &str, _: &Error) {}
+            fn on_level_started(&self, _: usize, _: usize) {}
+            fn on_level_completed(&self, _: usize) {}
+        }
+
+        executor.set_callback(TestCallback);
+        assert!(executor.callback.is_some());
+    }
+
+    #[test]
+    fn test_abort_handle() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut executor = LinearExecutor::new(temp.path()).unwrap();
+
+        let handle = AbortHandle::new();
+        executor.set_abort_handle(handle.clone());
+
+        assert!(executor.abort_handle().is_some());
+        assert!(!executor.is_aborted());
+
+        handle.abort();
+        assert!(executor.is_aborted());
+    }
+
+    #[test]
+    fn test_is_loaded() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let executor = LinearExecutor::new(temp.path()).unwrap();
+
+        let cell_id = CellId::new(1);
+        assert!(!executor.is_loaded(cell_id));
+
+        // Note: We can't actually load without a real dylib, but we test the interface
+        assert!(!executor.is_loaded(cell_id));
+    }
+
+    #[test]
+    fn test_get_state_reference() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let executor = LinearExecutor::new(temp.path()).unwrap();
+
+        let state_ref = executor.state();
+        // Verify we can access state methods
+        let stats = state_ref.stats();
+        assert_eq!(stats.cached_outputs, 0);
+    }
+
+    #[test]
+    fn test_execute_in_order_empty() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut executor = LinearExecutor::new(temp.path()).unwrap();
+
+        let empty_order: Vec<CellId> = vec![];
+        let empty_deps = std::collections::HashMap::new();
+
+        let result = executor.execute_in_order(&empty_order, &empty_deps);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_execute_cell_not_found() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut executor = LinearExecutor::new(temp.path()).unwrap();
+
+        let cell_id = CellId::new(999);
+        let result = executor.execute_cell(cell_id, &[]);
+
+        assert!(result.is_err());
+        match result {
+            Err(Error::CellNotFound(msg)) => {
+                assert!(msg.contains("not loaded"));
+            }
+            _ => panic!("Expected CellNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_execute_cell_aborted() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut executor = LinearExecutor::new(temp.path()).unwrap();
+
+        let handle = AbortHandle::new();
+        executor.set_abort_handle(handle.clone());
+        handle.abort();
+
+        let cell_id = CellId::new(1);
+        let result = executor.execute_cell(cell_id, &[]);
+
+        assert!(matches!(result, Err(Error::Aborted)));
     }
 }

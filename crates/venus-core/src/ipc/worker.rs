@@ -233,8 +233,13 @@ impl WorkerHandle {
 
         // Force kill if still running
         if let Err(e) = self.child.kill() {
-            // ESRCH means process already exited, which is fine
-            if !e.to_string().contains("No such process") {
+            // ESRCH (No such process) means process already exited, which is fine
+            // Check raw OS error: 3 on Unix (ESRCH), 87 on Windows (ERROR_INVALID_PARAMETER)
+            let is_already_dead = e.raw_os_error().map_or(false, |code| {
+                cfg!(unix) && code == 3 || cfg!(windows) && code == 87
+            });
+
+            if !is_already_dead {
                 tracing::warn!("Failed to kill worker: {}", e);
             }
         }
@@ -395,14 +400,22 @@ impl WorkerKillHandle {
     /// terminate the worker process.
     pub fn kill(&self) {
         if self.killed.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            tracing::debug!("Worker {} already killed, skipping", self.pid);
             return; // Already killed
         }
+
+        tracing::info!("Sending SIGKILL to worker process {}", self.pid);
 
         #[cfg(unix)]
         {
             // SIGKILL for immediate termination
             unsafe {
-                libc::kill(self.pid as i32, libc::SIGKILL);
+                let result = libc::kill(self.pid as i32, libc::SIGKILL);
+                if result != 0 {
+                    tracing::warn!("Failed to kill worker {}: errno={}", self.pid, *libc::__errno_location());
+                } else {
+                    tracing::info!("SIGKILL sent successfully to worker {}", self.pid);
+                }
             }
         }
 

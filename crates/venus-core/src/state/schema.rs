@@ -178,9 +178,9 @@ impl SchemaChange {
 
 /// Extract type fingerprint from a syn ItemStruct.
 ///
-/// TODO(proc-macro): This function will be used by the venus proc-macro crate
-/// to generate compile-time type fingerprints for schema evolution detection.
-/// It enables automatic cache invalidation when struct definitions change.
+/// **Planned feature**: Reserved for venus proc-macro crate to generate
+/// compile-time type fingerprints for schema evolution detection.
+/// This will enable automatic cache invalidation when struct definitions change.
 #[allow(dead_code)]
 pub fn fingerprint_from_struct(item: &syn::ItemStruct) -> TypeFingerprint {
     let type_name = item.ident.to_string();

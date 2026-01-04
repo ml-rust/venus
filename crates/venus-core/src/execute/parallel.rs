@@ -104,7 +104,7 @@ impl ParallelExecutor {
             // Check for errors
             let errors: Vec<_> = results.into_iter().filter_map(|r| r.err()).collect();
             if !errors.is_empty() {
-                // TODO(errors): Aggregate multiple errors instead of returning first
+                // Note: Returns first error. Error aggregation could be added in future.
                 return Err(errors.into_iter().next().unwrap());
             }
 
@@ -127,15 +127,13 @@ impl ParallelExecutor {
     ) -> Result<()> {
         let dep_ids = deps.get(&cell_id).cloned().unwrap_or_default();
 
-        // TODO(parallelism): Current implementation serializes execution within a level
-        // because execute_cell requires &mut self. To enable true parallelism:
-        // 1. Refactor LinearExecutor to separate read-only operations (loading cells, calling FFI)
-        //    from state mutations (storing outputs)
-        // 2. Use RwLock instead of Mutex to allow concurrent reads
-        // 3. Hold only read lock during FFI execution, exclusive lock only for output storage
-        //
-        // For now, we prioritize correctness over parallelism within a level.
-        // Inter-level parallelism is preserved.
+        // Known limitation: Cells within a level execute sequentially (not in parallel)
+        // because execute_cell requires &mut self. This is a correctness-first design.
+        // True intra-level parallelism would require:
+        //   1. Separating read-only FFI calls from state mutations
+        //   2. RwLock instead of Mutex for concurrent reads
+        //   3. Read lock during FFI, exclusive lock only for output storage
+        // Inter-level parallelism (different levels execute in order) is preserved.
 
         let mut inner = self.acquire_lock()?;
 
@@ -173,25 +171,14 @@ impl ParallelExecutor {
     }
 }
 
-/// Statistics about parallel execution.
-///
-/// TODO(metrics): Populate and return from execute_parallel
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub struct ExecutionStats {
-    /// Total cells executed
-    pub cells_executed: usize,
-    /// Number of parallel levels
-    pub levels: usize,
-    /// Maximum parallelism achieved
-    pub max_parallelism: usize,
-    /// Total execution time in milliseconds
-    pub total_time_ms: u64,
-}
+// Note: ExecutionStats was removed as unused dead code.
+// If metrics collection is needed in the future, it can be re-added
+// with fields: cells_executed, levels, max_parallelism, total_time_ms.
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execute::AbortHandle;
 
     #[test]
     fn test_parallel_executor_creation() {
@@ -204,6 +191,53 @@ mod tests {
     }
 
     #[test]
+    fn test_with_state_creation() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let state = StateManager::new(temp.path()).unwrap();
+        let executor = ParallelExecutor::with_state(state);
+
+        let inner = executor.inner.lock().unwrap();
+        assert!(inner.state().stats().cached_outputs == 0);
+    }
+
+    #[test]
+    fn test_set_callback() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut executor = ParallelExecutor::new(temp.path()).unwrap();
+
+        struct TestCallback;
+        impl ExecutionCallback for TestCallback {
+            fn on_cell_started(&self, _: CellId, _: &str) {}
+            fn on_cell_completed(&self, _: CellId, _: &str) {}
+            fn on_cell_error(&self, _: CellId, _: &str, _: &Error) {}
+            fn on_level_started(&self, _: usize, _: usize) {}
+            fn on_level_completed(&self, _: usize) {}
+        }
+
+        // Just verify we can set a callback (callback field is private, can't test directly)
+        executor.set_callback(TestCallback);
+    }
+
+    #[test]
+    fn test_abort_handle() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let executor = ParallelExecutor::new(temp.path()).unwrap();
+
+        let handle = AbortHandle::new();
+
+        {
+            let mut inner = executor.inner.lock().unwrap();
+            inner.set_abort_handle(handle.clone());
+            assert!(inner.abort_handle().is_some());
+        }
+
+        handle.abort();
+
+        // Verify abort is set (will be checked during execution)
+        assert!(handle.is_aborted());
+    }
+
+    #[test]
     fn test_empty_levels() {
         let temp = tempfile::TempDir::new().unwrap();
         let executor = ParallelExecutor::new(temp.path()).unwrap();
@@ -213,5 +247,45 @@ mod tests {
 
         // Should succeed with no work to do
         executor.execute_parallel(&levels, &deps).unwrap();
+    }
+
+    #[test]
+    fn test_is_loaded() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let executor = ParallelExecutor::new(temp.path()).unwrap();
+
+        let cell_id = CellId::new(1);
+
+        let inner = executor.inner.lock().unwrap();
+        assert!(!inner.is_loaded(cell_id));
+    }
+
+    #[test]
+    fn test_get_state_reference() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let executor = ParallelExecutor::new(temp.path()).unwrap();
+
+        let inner = executor.inner.lock().unwrap();
+        let stats = inner.state().stats();
+        assert_eq!(stats.cached_outputs, 0);
+    }
+
+    #[test]
+    fn test_execute_parallel_aborted() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let executor = ParallelExecutor::new(temp.path()).unwrap();
+
+        let handle = AbortHandle::new();
+        {
+            let mut inner = executor.inner.lock().unwrap();
+            inner.set_abort_handle(handle.clone());
+        }
+        handle.abort();
+
+        let levels: Vec<Vec<CellId>> = vec![vec![CellId::new(1)]];
+        let deps = HashMap::new();
+
+        let result = executor.execute_parallel(&levels, &deps);
+        assert!(matches!(result, Err(Error::Aborted)));
     }
 }

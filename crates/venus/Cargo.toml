@@ -13,7 +13,7 @@ serde_json.workspace = true
 rkyv.workspace = true
 
 # Optional rich output integrations
-polars = { version = "0.46", optional = true, default-features = false, features = [
+polars = { version = "0.52", optional = true, default-features = false, features = [
   "lazy",
   "fmt",
 ] }

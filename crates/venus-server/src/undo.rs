@@ -56,6 +56,20 @@ pub enum UndoableOperation {
         new_display_name: String,
     },
 
+    /// A code cell was edited. Undo = restore old source.
+    EditCell {
+        /// Cell ID that was edited.
+        cell_id: CellId,
+        /// Start line of the cell.
+        start_line: usize,
+        /// End line of the cell.
+        end_line: usize,
+        /// Old source code (for undo).
+        old_source: String,
+        /// New source code.
+        new_source: String,
+    },
+
     /// A markdown cell was inserted. Undo = delete it.
     InsertMarkdownCell {
         /// Start line of the inserted markdown cell.
@@ -170,6 +184,9 @@ impl UndoableOperation {
             Self::RenameCell { cell_name, new_display_name, .. } => {
                 format!("Rename '{}' to '{}'", cell_name, new_display_name)
             }
+            Self::EditCell { start_line, .. } => {
+                format!("Edit cell at line {}", start_line)
+            }
             Self::InsertMarkdownCell { start_line, .. } => {
                 format!("Insert markdown cell at line {}", start_line)
             }
@@ -226,6 +243,9 @@ impl UndoableOperation {
             }
             Self::RenameCell { cell_name, old_display_name, .. } => {
                 format!("Rename '{}' back to '{}'", cell_name, old_display_name)
+            }
+            Self::EditCell { start_line, .. } => {
+                format!("Restore cell at line {}", start_line)
             }
             Self::InsertMarkdownCell { start_line, .. } => {
                 format!("Delete markdown cell at line {}", start_line)

@@ -140,19 +140,28 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
+    // Helper to format venus-core errors with recovery hints
+    let format_error = |err: anyhow::Error| -> anyhow::Error {
+        if let Some(venus_err) = err.downcast_ref::<venus_core::Error>() {
+            anyhow::anyhow!("{}", venus_err.with_hint())
+        } else {
+            err
+        }
+    };
+
     match cli.command {
         Commands::Run {
             notebook,
             cell,
             release,
-        } => run::execute(&notebook, cell.as_deref(), release)?,
+        } => run::execute(&notebook, cell.as_deref(), release).map_err(format_error)?,
 
         Commands::Serve { path, port } => {
-            serve::execute(&path, port).await?;
+            serve::execute(&path, port).await.map_err(format_error)?;
         }
 
         Commands::Sync { notebook, watch } => {
-            sync::execute(&notebook, watch)?;
+            sync::execute(&notebook, watch).map_err(format_error)?;
         }
 
         Commands::Build {
@@ -160,11 +169,11 @@ async fn main() -> anyhow::Result<()> {
             output,
             release,
         } => {
-            build::execute(&notebook, output.as_deref(), release)?;
+            build::execute(&notebook, output.as_deref(), release).map_err(format_error)?;
         }
 
         Commands::New { name, workspace } => {
-            create_new_notebook(&name, workspace)?;
+            create_new_notebook(&name, workspace).map_err(format_error)?;
         }
 
         Commands::Export {
@@ -173,7 +182,7 @@ async fn main() -> anyhow::Result<()> {
             release,
             dark,
         } => {
-            export::execute(&notebook, output.as_deref(), release, dark)?;
+            export::execute(&notebook, output.as_deref(), release, dark).map_err(format_error)?;
         }
 
         Commands::Watch {
@@ -182,7 +191,7 @@ async fn main() -> anyhow::Result<()> {
             release,
             clear,
         } => {
-            watch::execute(&notebook, cell.as_deref(), release, clear).await?;
+            watch::execute(&notebook, cell.as_deref(), release, clear).await.map_err(format_error)?;
         }
     }
 

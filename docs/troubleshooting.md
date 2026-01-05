@@ -11,7 +11,7 @@ Venus is currently in active development. As users report issues, this guide wil
 If you encounter a problem not listed here:
 
 1. **Check existing issues**: [GitHub Issues](https://github.com/ml-rust/venus/issues)
-2. **Ask the community**: [Venus Discord](https://discord.gg/EwWqU9Xqpf)
+2. **Ask the community**: [Venus Discord](https://discord.gg/WRsqJ3WSW2)
 3. **Provide details**:
    - Venus version (`venus --version`)
    - Operating system and version

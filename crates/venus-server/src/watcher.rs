@@ -155,24 +155,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_watcher_ignores_non_rust_files() {
+        // Use a directory with NO .rs files so that even if FSEvents reports
+        // directory-level changes, there is no .rs file to match against.
         let temp = TempDir::new().unwrap();
-        let notebook = temp.path().join("test.rs");
-        fs::write(&notebook, "// test").unwrap();
 
-        // Watch the directory (not a specific file) to test extension filtering
         let mut watcher = FileWatcher::new(temp.path()).unwrap();
 
         // Give the watcher time to initialize
         sleep(Duration::from_millis(500)).await;
 
-        // Create a non-Rust file (should be ignored)
-        let other_file = temp.path().join("test.txt");
-        fs::write(&other_file, "text content").unwrap();
+        // Create non-Rust files (should be ignored)
+        fs::write(temp.path().join("test.txt"), "text content").unwrap();
+        fs::write(temp.path().join("data.json"), "{}").unwrap();
 
         // Wait a bit to ensure no event is generated
-        let timeout = tokio::time::timeout(Duration::from_secs(1), watcher.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(2), watcher.recv()).await;
 
-        // Should timeout because .txt files are filtered out
+        // Should timeout because .txt/.json files are filtered out
         assert!(timeout.is_err(), "Watcher should ignore non-.rs files");
     }
 

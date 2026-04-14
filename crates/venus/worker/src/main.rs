@@ -91,17 +91,22 @@ fn main() {
                 }
             }
 
-            WorkerCommand::Execute { inputs, widget_values_json } => {
-                match &loaded_cell {
-                    None => WorkerResponse::Error {
-                        message: "No cell loaded".to_string(),
-                    },
-                    Some(cell) => {
-                        tracing::info!("Executing cell '{}' with {} inputs", cell.name, inputs.len());
-                        execute_cell(cell, inputs, widget_values_json)
-                    }
+            WorkerCommand::Execute {
+                inputs,
+                widget_values_json,
+            } => match &loaded_cell {
+                None => WorkerResponse::Error {
+                    message: "No cell loaded".to_string(),
+                },
+                Some(cell) => {
+                    tracing::info!(
+                        "Executing cell '{}' with {} inputs",
+                        cell.name,
+                        inputs.len()
+                    );
+                    execute_cell(cell, inputs, widget_values_json)
                 }
-            }
+            },
         };
 
         // Send response
@@ -140,13 +145,19 @@ fn load_cell(
 }
 
 /// Execute a cell with the given inputs.
-fn execute_cell(cell: &LoadedCell, inputs: Vec<Vec<u8>>, widget_values_json: Vec<u8>) -> WorkerResponse {
+fn execute_cell(
+    cell: &LoadedCell,
+    inputs: Vec<Vec<u8>>,
+    widget_values_json: Vec<u8>,
+) -> WorkerResponse {
     // Verify input count
     if inputs.len() != cell.dep_count {
         return WorkerResponse::Error {
             message: format!(
                 "Cell {} expects {} inputs, got {}",
-                cell.name, cell.dep_count, inputs.len()
+                cell.name,
+                cell.dep_count,
+                inputs.len()
             ),
         };
     }
@@ -158,7 +169,10 @@ fn execute_cell(cell: &LoadedCell, inputs: Vec<Vec<u8>>, widget_values_json: Vec
     }));
 
     match result {
-        Ok(Ok((output_bytes, widgets_json))) => WorkerResponse::Output { bytes: output_bytes, widgets_json },
+        Ok(Ok((output_bytes, widgets_json))) => WorkerResponse::Output {
+            bytes: output_bytes,
+            widgets_json,
+        },
         Ok(Err(e)) => WorkerResponse::Error { message: e },
         Err(panic_info) => {
             let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
@@ -174,7 +188,11 @@ fn execute_cell(cell: &LoadedCell, inputs: Vec<Vec<u8>>, widget_values_json: Vec
 }
 
 /// Call the cell's FFI entry point.
-fn call_cell_ffi(cell: &LoadedCell, inputs: &[Vec<u8>], widget_values_json: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
+fn call_cell_ffi(
+    cell: &LoadedCell,
+    inputs: &[Vec<u8>],
+    widget_values_json: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     let symbol_name = format!("{}\0", cell.entry_symbol);
 
     // For cells with no dependencies
@@ -187,7 +205,11 @@ fn call_cell_ffi(cell: &LoadedCell, inputs: &[Vec<u8>], widget_values_json: &[u8
 }
 
 /// Call a cell with no dependencies.
-fn call_cell_no_deps(cell: &LoadedCell, symbol_name: &str, widget_values_json: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
+fn call_cell_no_deps(
+    cell: &LoadedCell,
+    symbol_name: &str,
+    widget_values_json: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     let func: Symbol<EntryFn0> = unsafe { cell.library.get(symbol_name.as_bytes()) }
         .map_err(|e| format!("Failed to get symbol: {}", e))?;
 
@@ -196,8 +218,10 @@ fn call_cell_no_deps(cell: &LoadedCell, symbol_name: &str, widget_values_json: &
 
     let result_code = unsafe {
         func(
-            widget_values_json.as_ptr(), widget_values_json.len(),
-            &mut out_ptr, &mut out_len
+            widget_values_json.as_ptr(),
+            widget_values_json.len(),
+            &mut out_ptr,
+            &mut out_len,
         )
     };
 
@@ -262,28 +286,42 @@ fn process_ffi_result(
             // Parse the output format:
             // display_len (8) | display_bytes | widgets_len (8) | widgets_json | rkyv_data
             if raw_bytes.len() < 16 {
-                return Err(format!("Cell {} output too short: {} bytes", cell_name, raw_bytes.len()));
+                return Err(format!(
+                    "Cell {} output too short: {} bytes",
+                    cell_name,
+                    raw_bytes.len()
+                ));
             }
 
             // Read display_len
-            let display_len_bytes: [u8; 8] = raw_bytes[0..8].try_into()
-                .map_err(|_| format!("Cell {} output has malformed display_len field", cell_name))?;
+            let display_len_bytes: [u8; 8] = raw_bytes[0..8].try_into().map_err(|_| {
+                format!("Cell {} output has malformed display_len field", cell_name)
+            })?;
             let display_len = u64::from_le_bytes(display_len_bytes) as usize;
             let display_end = 8 + display_len;
 
             if raw_bytes.len() < display_end + 8 {
-                return Err(format!("Cell {} output too short for display data", cell_name));
+                return Err(format!(
+                    "Cell {} output too short for display data",
+                    cell_name
+                ));
             }
 
             // Read widgets_len
-            let widgets_len_bytes: [u8; 8] = raw_bytes[display_end..display_end + 8].try_into()
-                .map_err(|_| format!("Cell {} output has malformed widgets_len field", cell_name))?;
+            let widgets_len_bytes: [u8; 8] = raw_bytes[display_end..display_end + 8]
+                .try_into()
+                .map_err(|_| {
+                    format!("Cell {} output has malformed widgets_len field", cell_name)
+                })?;
             let widgets_len = u64::from_le_bytes(widgets_len_bytes) as usize;
             let widgets_start = display_end + 8;
             let widgets_end = widgets_start + widgets_len;
 
             if raw_bytes.len() < widgets_end {
-                return Err(format!("Cell {} output too short for widgets data", cell_name));
+                return Err(format!(
+                    "Cell {} output too short for widgets data",
+                    cell_name
+                ));
             }
 
             // Extract widgets_json
@@ -302,14 +340,10 @@ fn process_ffi_result(
         ExecutionResult::DeserializationError => {
             Err(format!("Cell {} failed to deserialize input", cell_name))
         }
-        ExecutionResult::CellError => {
-            Err(format!("Cell {} returned an error", cell_name))
-        }
+        ExecutionResult::CellError => Err(format!("Cell {} returned an error", cell_name)),
         ExecutionResult::SerializationError => {
             Err(format!("Cell {} failed to serialize output", cell_name))
         }
-        ExecutionResult::Panic => {
-            Err(format!("Cell {} panicked during execution", cell_name))
-        }
+        ExecutionResult::Panic => Err(format!("Cell {} panicked during execution", cell_name)),
     }
 }

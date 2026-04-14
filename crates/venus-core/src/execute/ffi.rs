@@ -43,92 +43,146 @@ impl From<i32> for ExecutionResult {
 
 /// Entry function for cells with 0 dependencies.
 pub type EntryFn0 = unsafe extern "C" fn(
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 1 dependency.
 pub type EntryFn1 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 2 dependencies.
 pub type EntryFn2 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 3 dependencies.
 pub type EntryFn3 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // dep 2
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // dep 2
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 4 dependencies.
 pub type EntryFn4 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // dep 2
-    *const u8, usize,  // dep 3
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // dep 2
+    *const u8,
+    usize, // dep 3
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 5 dependencies.
 pub type EntryFn5 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // dep 2
-    *const u8, usize,  // dep 3
-    *const u8, usize,  // dep 4
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // dep 2
+    *const u8,
+    usize, // dep 3
+    *const u8,
+    usize, // dep 4
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 6 dependencies.
 pub type EntryFn6 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // dep 2
-    *const u8, usize,  // dep 3
-    *const u8, usize,  // dep 4
-    *const u8, usize,  // dep 5
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // dep 2
+    *const u8,
+    usize, // dep 3
+    *const u8,
+    usize, // dep 4
+    *const u8,
+    usize, // dep 5
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 7 dependencies.
 pub type EntryFn7 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // dep 2
-    *const u8, usize,  // dep 3
-    *const u8, usize,  // dep 4
-    *const u8, usize,  // dep 5
-    *const u8, usize,  // dep 6
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // dep 2
+    *const u8,
+    usize, // dep 3
+    *const u8,
+    usize, // dep 4
+    *const u8,
+    usize, // dep 5
+    *const u8,
+    usize, // dep 6
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Entry function for cells with 8 dependencies.
 pub type EntryFn8 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // dep 2
-    *const u8, usize,  // dep 3
-    *const u8, usize,  // dep 4
-    *const u8, usize,  // dep 5
-    *const u8, usize,  // dep 6
-    *const u8, usize,  // dep 7
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // dep 2
+    *const u8,
+    usize, // dep 3
+    *const u8,
+    usize, // dep 4
+    *const u8,
+    usize, // dep 5
+    *const u8,
+    usize, // dep 6
+    *const u8,
+    usize, // dep 7
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 // =============================================================================

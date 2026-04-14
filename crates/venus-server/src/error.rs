@@ -128,8 +128,9 @@ mod tests {
         assert_eq!(err.to_string(), "WebSocket error: connection closed");
 
         let err = ServerError::InvalidOperation("Cannot delete cell with dependencies".to_string());
-        assert!(err
-            .to_string()
-            .contains("Cannot delete cell with dependencies"));
+        assert!(
+            err.to_string()
+                .contains("Cannot delete cell with dependencies")
+        );
     }
 }

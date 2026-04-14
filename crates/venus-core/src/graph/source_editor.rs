@@ -3,10 +3,10 @@
 //! Uses advisory file locking to prevent race conditions when multiple processes
 //! modify the same notebook file concurrently.
 
+use fs2::FileExt;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use fs2::FileExt;
 
 use syn::spanned::Spanned;
 use syn::{Attribute, File as SynFile};
@@ -51,7 +51,11 @@ impl SourceEditor {
         lock_file.try_lock_exclusive().map_err(|e| {
             Error::Io(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
-                format!("File is locked by another process: {}: {}", path.display(), e),
+                format!(
+                    "File is locked by another process: {}: {}",
+                    path.display(),
+                    e
+                ),
             ))
         })?;
 
@@ -146,10 +150,8 @@ impl SourceEditor {
         let cell_source = &self.content[start_offset..end_offset];
 
         // Replace the function name in the duplicated code
-        let new_cell_source = cell_source.replace(
-            &format!("fn {}(", cell_name),
-            &format!("fn {}(", new_name),
-        );
+        let new_cell_source =
+            cell_source.replace(&format!("fn {}(", cell_name), &format!("fn {}(", new_name));
 
         // Insert the new cell after the original
         let insert_code = format!("\n{}", new_cell_source);
@@ -179,13 +181,17 @@ impl SourceEditor {
         let neighbor_idx = match direction {
             MoveDirection::Up => {
                 if cell_idx == 0 {
-                    return Err(Error::InvalidOperation("Cannot move first cell up".to_string()));
+                    return Err(Error::InvalidOperation(
+                        "Cannot move first cell up".to_string(),
+                    ));
                 }
                 cell_idx - 1
             }
             MoveDirection::Down => {
                 if cell_idx >= cells.len() - 1 {
-                    return Err(Error::InvalidOperation("Cannot move last cell down".to_string()));
+                    return Err(Error::InvalidOperation(
+                        "Cannot move last cell down".to_string(),
+                    ));
                 }
                 cell_idx + 1
             }
@@ -235,105 +241,108 @@ impl SourceEditor {
         // Find the cell
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    let name = func.sig.ident.to_string();
-                    if name == cell_name {
-                        // Extract existing doc comments (excluding # heading lines)
-                        let mut doc_lines: Vec<String> = Vec::new();
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                let name = func.sig.ident.to_string();
+                if name == cell_name {
+                    // Extract existing doc comments (excluding # heading lines)
+                    let mut doc_lines: Vec<String> = Vec::new();
 
-                        for attr in &func.attrs {
-                            if attr.path().is_ident("doc")
-                                && let syn::Meta::NameValue(nv) = &attr.meta
-                                && let syn::Expr::Lit(syn::ExprLit {
-                                    lit: syn::Lit::Str(s),
-                                    ..
-                                }) = &nv.value
-                            {
-                                let line = s.value();
-                                let trimmed = line.trim_start();
+                    for attr in &func.attrs {
+                        if attr.path().is_ident("doc")
+                            && let syn::Meta::NameValue(nv) = &attr.meta
+                            && let syn::Expr::Lit(syn::ExprLit {
+                                lit: syn::Lit::Str(s),
+                                ..
+                            }) = &nv.value
+                        {
+                            let line = s.value();
+                            let trimmed = line.trim_start();
 
-                                // Skip existing # heading (we'll add new one)
-                                if trimmed.starts_with('#') {
-                                    continue;
-                                }
-
-                                doc_lines.push(line);
+                            // Skip existing # heading (we'll add new one)
+                            if trimmed.starts_with('#') {
+                                continue;
                             }
+
+                            doc_lines.push(line);
                         }
-
-                        // Build new doc comment with display name heading
-                        let mut new_doc_lines = vec![format!("# {}", new_display_name)];
-                        if !doc_lines.is_empty() {
-                            // Add blank line between heading and description
-                            new_doc_lines.push(String::new());
-                            new_doc_lines.extend(doc_lines);
-                        }
-
-                        // Find the span for doc comments and attributes
-                        let doc_start_line = if !func.attrs.is_empty() {
-                            func.attrs
-                                .iter()
-                                .filter(|a| a.path().is_ident("doc"))
-                                .map(|a| a.span().start().line)
-                                .min()
-                                .unwrap_or(func.attrs[0].span().start().line)
-                        } else {
-                            func.span().start().line
-                        };
-
-                        // Find the function declaration line (pub fn ...)
-                        let fn_start_line = func.sig.fn_token.span.start().line;
-
-                        // Reconstruct the cell with new doc comments
-                        let lines: Vec<&str> = self.content.lines().collect();
-
-                        // Get the indentation of the original doc comments or function
-                        let indent = if !func.attrs.is_empty() {
-                            Self::get_line_indent(&lines, doc_start_line)
-                        } else {
-                            Self::get_line_indent(&lines, fn_start_line)
-                        };
-
-                        // Build new doc comment block
-                        let new_doc_comment = new_doc_lines
-                            .iter()
-                            .map(|line| format!("{}/// {}", indent, line))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-
-                        // Find where to replace
-                        let replace_start = self.line_start_offset(doc_start_line, &lines);
-                        let replace_end = self.line_start_offset(fn_start_line, &lines);
-
-                        // Build new content
-                        let mut new_content = String::new();
-                        new_content.push_str(&self.content[..replace_start]);
-                        new_content.push_str(&new_doc_comment);
-                        new_content.push('\n');
-
-                        // Add the #[venus::cell] attribute if it's not a doc comment
-                        let mut added_cell_attr = false;
-                        for attr in &func.attrs {
-                            if !attr.path().is_ident("doc")
-                                && !added_cell_attr {
-                                    new_content.push_str(&format!("{}#[venus::cell]\n", indent));
-                                    added_cell_attr = true;
-                                }
-                        }
-
-                        if !added_cell_attr {
-                            new_content.push_str(&format!("{}#[venus::cell]\n", indent));
-                        }
-
-                        new_content.push_str(&self.content[replace_end..]);
-
-                        self.content = new_content;
-                        return Ok(());
                     }
+
+                    // Build new doc comment with display name heading
+                    let mut new_doc_lines = vec![format!("# {}", new_display_name)];
+                    if !doc_lines.is_empty() {
+                        // Add blank line between heading and description
+                        new_doc_lines.push(String::new());
+                        new_doc_lines.extend(doc_lines);
+                    }
+
+                    // Find the span for doc comments and attributes
+                    let doc_start_line = if !func.attrs.is_empty() {
+                        func.attrs
+                            .iter()
+                            .filter(|a| a.path().is_ident("doc"))
+                            .map(|a| a.span().start().line)
+                            .min()
+                            .unwrap_or(func.attrs[0].span().start().line)
+                    } else {
+                        func.span().start().line
+                    };
+
+                    // Find the function declaration line (pub fn ...)
+                    let fn_start_line = func.sig.fn_token.span.start().line;
+
+                    // Reconstruct the cell with new doc comments
+                    let lines: Vec<&str> = self.content.lines().collect();
+
+                    // Get the indentation of the original doc comments or function
+                    let indent = if !func.attrs.is_empty() {
+                        Self::get_line_indent(&lines, doc_start_line)
+                    } else {
+                        Self::get_line_indent(&lines, fn_start_line)
+                    };
+
+                    // Build new doc comment block
+                    let new_doc_comment = new_doc_lines
+                        .iter()
+                        .map(|line| format!("{}/// {}", indent, line))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    // Find where to replace
+                    let replace_start = self.line_start_offset(doc_start_line, &lines);
+                    let replace_end = self.line_start_offset(fn_start_line, &lines);
+
+                    // Build new content
+                    let mut new_content = String::new();
+                    new_content.push_str(&self.content[..replace_start]);
+                    new_content.push_str(&new_doc_comment);
+                    new_content.push('\n');
+
+                    // Add the #[venus::cell] attribute if it's not a doc comment
+                    let mut added_cell_attr = false;
+                    for attr in &func.attrs {
+                        if !attr.path().is_ident("doc") && !added_cell_attr {
+                            new_content.push_str(&format!("{}#[venus::cell]\n", indent));
+                            added_cell_attr = true;
+                        }
+                    }
+
+                    if !added_cell_attr {
+                        new_content.push_str(&format!("{}#[venus::cell]\n", indent));
+                    }
+
+                    new_content.push_str(&self.content[replace_end..]);
+
+                    self.content = new_content;
+                    return Ok(());
                 }
+            }
         }
 
-        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+        Err(Error::CellNotFound(format!(
+            "Cell '{}' not found",
+            cell_name
+        )))
     }
 
     /// Insert a markdown cell at a specific line position.
@@ -454,10 +463,20 @@ impl SourceEditor {
     ///
     /// Replaces the comment block at the given line range with new content.
     /// If `is_module_doc` is true, uses `//!` syntax; otherwise uses `///`.
-    pub fn edit_markdown_cell(&mut self, start_line: usize, end_line: usize, new_content: &str, is_module_doc: bool) -> Result<()> {
+    pub fn edit_markdown_cell(
+        &mut self,
+        start_line: usize,
+        end_line: usize,
+        new_content: &str,
+        is_module_doc: bool,
+    ) -> Result<()> {
         let lines: Vec<&str> = self.content.lines().collect();
 
-        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+        if start_line == 0
+            || start_line > lines.len()
+            || end_line > lines.len()
+            || start_line > end_line
+        {
             return Err(Error::InvalidOperation(format!(
                 "Invalid line range: {}-{}",
                 start_line, end_line
@@ -489,11 +508,7 @@ impl SourceEditor {
             )
         } else {
             // Last line of file - no trailing newline needed
-            format!(
-                "{}{}",
-                &self.content[..start_offset],
-                markdown_block
-            )
+            format!("{}{}", &self.content[..start_offset], markdown_block)
         };
 
         eprintln!("  needs_newline={}", needs_newline);
@@ -503,10 +518,19 @@ impl SourceEditor {
 
     /// Edit raw Rust code by line range (for definition cells, etc.) without any formatting.
     /// Replaces the code block at the given line range with new content as-is.
-    pub fn edit_raw_code(&mut self, start_line: usize, end_line: usize, new_content: &str) -> Result<()> {
+    pub fn edit_raw_code(
+        &mut self,
+        start_line: usize,
+        end_line: usize,
+        new_content: &str,
+    ) -> Result<()> {
         let lines: Vec<&str> = self.content.lines().collect();
 
-        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+        if start_line == 0
+            || start_line > lines.len()
+            || end_line > lines.len()
+            || start_line > end_line
+        {
             return Err(Error::InvalidOperation(format!(
                 "Invalid line range: {}-{}",
                 start_line, end_line
@@ -527,11 +551,7 @@ impl SourceEditor {
                 &self.content[end_offset..]
             )
         } else {
-            format!(
-                "{}{}",
-                &self.content[..start_offset],
-                new_content
-            )
+            format!("{}{}", &self.content[..start_offset], new_content)
         };
 
         Ok(())
@@ -541,7 +561,11 @@ impl SourceEditor {
     pub fn delete_markdown_cell(&mut self, start_line: usize, end_line: usize) -> Result<()> {
         let lines: Vec<&str> = self.content.lines().collect();
 
-        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+        if start_line == 0
+            || start_line > lines.len()
+            || end_line > lines.len()
+            || start_line > end_line
+        {
             return Err(Error::InvalidOperation(format!(
                 "Invalid line range: {}-{}",
                 start_line, end_line
@@ -576,7 +600,11 @@ impl SourceEditor {
     ) -> Result<()> {
         let lines: Vec<&str> = self.content.lines().collect();
 
-        if start_line == 0 || start_line > lines.len() || end_line > lines.len() || start_line > end_line {
+        if start_line == 0
+            || start_line > lines.len()
+            || end_line > lines.len()
+            || start_line > end_line
+        {
             return Err(Error::InvalidOperation(format!(
                 "Invalid line range: {}-{}",
                 start_line, end_line
@@ -593,7 +621,9 @@ impl SourceEditor {
             MoveDirection::Up => {
                 // Find the previous block (scan backwards)
                 if start_line == 1 {
-                    return Err(Error::InvalidOperation("Cannot move first block up".to_string()));
+                    return Err(Error::InvalidOperation(
+                        "Cannot move first block up".to_string(),
+                    ));
                 }
 
                 // Simple heuristic: find previous non-empty line group
@@ -617,7 +647,9 @@ impl SourceEditor {
             MoveDirection::Down => {
                 // Find the next block (scan forwards)
                 if end_line >= lines.len() {
-                    return Err(Error::InvalidOperation("Cannot move last block down".to_string()));
+                    return Err(Error::InvalidOperation(
+                        "Cannot move last block down".to_string(),
+                    ));
                 }
 
                 // Skip blank lines
@@ -765,80 +797,90 @@ impl SourceEditor {
     pub fn find_cell_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    let name = func.sig.ident.to_string();
-                    if name == cell_name {
-                        // Start from the first attribute or doc comment
-                        let start_line = if !func.attrs.is_empty() {
-                            // Find earliest attribute/doc comment line
-                            func.attrs
-                                .iter()
-                                .map(|a| a.span().start().line)
-                                .min()
-                                .unwrap_or(func.sig.fn_token.span.start().line)
-                        } else {
-                            func.sig.fn_token.span.start().line
-                        };
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                let name = func.sig.ident.to_string();
+                if name == cell_name {
+                    // Start from the first attribute or doc comment
+                    let start_line = if !func.attrs.is_empty() {
+                        // Find earliest attribute/doc comment line
+                        func.attrs
+                            .iter()
+                            .map(|a| a.span().start().line)
+                            .min()
+                            .unwrap_or(func.sig.fn_token.span.start().line)
+                    } else {
+                        func.sig.fn_token.span.start().line
+                    };
 
-                        let end_line = func.block.brace_token.span.close().end().line;
+                    let end_line = func.block.brace_token.span.close().end().line;
 
-                        return Ok((start_line, end_line));
-                    }
+                    return Ok((start_line, end_line));
                 }
+            }
         }
 
-        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+        Err(Error::CellNotFound(format!(
+            "Cell '{}' not found",
+            cell_name
+        )))
     }
 
     /// Find just the function span (NOT doc comments) for editing.
     pub fn find_function_span(&self, file: &SynFile, cell_name: &str) -> Result<(usize, usize)> {
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    let name = func.sig.ident.to_string();
-                    if name == cell_name {
-                        // Start from pub fn, NOT doc comments
-                        let start_line = func.sig.fn_token.span.start().line;
-                        let end_line = func.block.brace_token.span.close().end().line;
-                        return Ok((start_line, end_line));
-                    }
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                let name = func.sig.ident.to_string();
+                if name == cell_name {
+                    // Start from pub fn, NOT doc comments
+                    let start_line = func.sig.fn_token.span.start().line;
+                    let end_line = func.block.brace_token.span.close().end().line;
+                    return Ok((start_line, end_line));
                 }
+            }
         }
 
-        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+        Err(Error::CellNotFound(format!(
+            "Cell '{}' not found",
+            cell_name
+        )))
     }
 
     /// Extract existing doc comments for a cell.
     /// Returns them in "/// comment" format, preserving original formatting.
     pub fn extract_doc_comments(&self, cell_name: &str) -> Result<Vec<String>> {
-        let file: SynFile = syn::parse_str(&self.content)
-            .map_err(|e| Error::Parse(e.to_string()))?;
+        let file: SynFile =
+            syn::parse_str(&self.content).map_err(|e| Error::Parse(e.to_string()))?;
 
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    let name = func.sig.ident.to_string();
-                    if name == cell_name {
-                        let mut doc_lines = Vec::new();
-                        for attr in &func.attrs {
-                            if attr.path().is_ident("doc") {
-                                if let syn::Meta::NameValue(meta) = &attr.meta {
-                                    if let syn::Expr::Lit(lit) = &meta.value {
-                                        if let syn::Lit::Str(s) = &lit.lit {
-                                            // syn stores doc comments without the leading space
-                                            // e.g., /// Hello -> doc = " Hello"
-                                            doc_lines.push(format!("///{}", s.value()));
-                                        }
-                                    }
-                                }
-                            }
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                let name = func.sig.ident.to_string();
+                if name == cell_name {
+                    let mut doc_lines = Vec::new();
+                    for attr in &func.attrs {
+                        if attr.path().is_ident("doc")
+                            && let syn::Meta::NameValue(meta) = &attr.meta
+                            && let syn::Expr::Lit(lit) = &meta.value
+                            && let syn::Lit::Str(s) = &lit.lit
+                        {
+                            // syn stores doc comments without the leading space
+                            // e.g., /// Hello -> doc = " Hello"
+                            doc_lines.push(format!("///{}", s.value()));
                         }
-                        return Ok(doc_lines);
                     }
+                    return Ok(doc_lines);
                 }
+            }
         }
 
-        Err(Error::CellNotFound(format!("Cell '{}' not found", cell_name)))
+        Err(Error::CellNotFound(format!(
+            "Cell '{}' not found",
+            cell_name
+        )))
     }
 
     /// Reconstruct a complete cell including doc comments and attributes.
@@ -847,7 +889,11 @@ impl SourceEditor {
         let doc_comments = self.extract_doc_comments(cell_name)?;
 
         if !doc_comments.is_empty() {
-            Ok(format!("{}\n#[venus::cell]\n{}", doc_comments.join("\n"), new_function))
+            Ok(format!(
+                "{}\n#[venus::cell]\n{}",
+                doc_comments.join("\n"),
+                new_function
+            ))
         } else {
             Ok(format!("#[venus::cell]\n{}", new_function))
         }
@@ -855,9 +901,13 @@ impl SourceEditor {
 
     /// Reconstruct a cell and get its line span in one call.
     /// Returns (reconstructed_text, start_line, end_line).
-    pub fn reconstruct_and_get_span(&self, cell_name: &str, new_function: &str) -> Result<(String, usize, usize)> {
-        let file: SynFile = syn::parse_str(&self.content)
-            .map_err(|e| Error::Parse(e.to_string()))?;
+    pub fn reconstruct_and_get_span(
+        &self,
+        cell_name: &str,
+        new_function: &str,
+    ) -> Result<(String, usize, usize)> {
+        let file: SynFile =
+            syn::parse_str(&self.content).map_err(|e| Error::Parse(e.to_string()))?;
 
         let reconstructed = self.reconstruct_cell(cell_name, new_function)?;
         let (start_line, end_line) = self.find_cell_span(&file, cell_name)?;
@@ -927,9 +977,10 @@ impl SourceEditor {
 
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    names.insert(func.sig.ident.to_string());
-                }
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                names.insert(func.sig.ident.to_string());
+            }
         }
 
         names
@@ -942,24 +993,25 @@ impl SourceEditor {
 
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    let name = func.sig.ident.to_string();
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                let name = func.sig.ident.to_string();
 
-                    // Start from the first attribute or doc comment
-                    let start_line = if !func.attrs.is_empty() {
-                        func.attrs
-                            .iter()
-                            .map(|a| a.span().start().line)
-                            .min()
-                            .unwrap_or(func.sig.fn_token.span.start().line)
-                    } else {
-                        func.sig.fn_token.span.start().line
-                    };
+                // Start from the first attribute or doc comment
+                let start_line = if !func.attrs.is_empty() {
+                    func.attrs
+                        .iter()
+                        .map(|a| a.span().start().line)
+                        .min()
+                        .unwrap_or(func.sig.fn_token.span.start().line)
+                } else {
+                    func.sig.fn_token.span.start().line
+                };
 
-                    let end_line = func.block.brace_token.span.close().end().line;
+                let end_line = func.block.brace_token.span.close().end().line;
 
-                    cells.push((name, start_line, end_line));
-                }
+                cells.push((name, start_line, end_line));
+            }
         }
 
         cells
@@ -1004,27 +1056,28 @@ impl SourceEditor {
 
         for item in &file.items {
             if let syn::Item::Fn(func) = item
-                && Self::has_cell_attribute(&func.attrs) {
-                    let name = func.sig.ident.to_string();
+                && Self::has_cell_attribute(&func.attrs)
+            {
+                let name = func.sig.ident.to_string();
 
-                    // Get the end line of this function
-                    let end_line = func.block.brace_token.span.close().end().line;
+                // Get the end line of this function
+                let end_line = func.block.brace_token.span.close().end().line;
 
-                    if let Some(target) = after_cell_id
-                        && name == target {
-                            target_end_line = Some(end_line);
-                            break;
-                        }
-
-                    last_cell_end_line = end_line;
+                if let Some(target) = after_cell_id
+                    && name == target
+                {
+                    target_end_line = Some(end_line);
+                    break;
                 }
+
+                last_cell_end_line = end_line;
+            }
         }
 
         // Determine which line to insert after
         let insert_after_line = match after_cell_id {
-            Some(id) => target_end_line.ok_or_else(|| {
-                Error::CellNotFound(format!("Cell '{}' not found", id))
-            })?,
+            Some(id) => target_end_line
+                .ok_or_else(|| Error::CellNotFound(format!("Cell '{}' not found", id)))?,
             None => {
                 // Insert at end - if no cells, insert at end of file
                 if last_cell_end_line == 0 {
@@ -1342,7 +1395,10 @@ pub fn documented() -> String {
         assert_eq!(name, "documented_copy");
 
         // Doc comments should be duplicated
-        assert_eq!(editor.content.matches("This is a documented cell").count(), 2);
+        assert_eq!(
+            editor.content.matches("This is a documented cell").count(),
+            2
+        );
         assert!(editor.content.contains("pub fn documented_copy()"));
     }
 

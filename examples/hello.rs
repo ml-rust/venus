@@ -39,6 +39,14 @@ pub fn greeting(config: &Config) -> String {
     format!("Hello from {}!", config.name)
 }
 
+/// # Greeting
+///
+/// Generate a greeting message using the config.
+#[venus::cell]
+pub fn greeting_copy(config: &Config) -> String {
+    format!("Hello from {}!", config.name)
+}
+
 /// # Computation
 ///
 /// Perform a simple computation based on config.

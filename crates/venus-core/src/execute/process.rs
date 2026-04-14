@@ -65,7 +65,9 @@ impl ExecutorKillHandle {
                     tracing::info!("ExecutorKillHandle: found worker kill handle, calling kill()");
                     kill_handle.kill();
                 } else {
-                    tracing::warn!("ExecutorKillHandle: inner is None (worker not spawned or already finished)");
+                    tracing::warn!(
+                        "ExecutorKillHandle: inner is None (worker not spawned or already finished)"
+                    );
                 }
             }
             Err(e) => {
@@ -129,9 +131,7 @@ impl ProcessExecutor {
 
     /// Check if execution has been aborted.
     fn is_aborted(&self) -> bool {
-        self.abort_handle
-            .as_ref()
-            .is_some_and(|h| h.is_aborted())
+        self.abort_handle.as_ref().is_some_and(|h| h.is_aborted())
     }
 
     /// Register a compiled cell for execution.
@@ -140,10 +140,13 @@ impl ProcessExecutor {
     /// The worker process will load it when executing.
     pub fn register_cell(&mut self, compiled: CompiledCell, dep_count: usize) {
         let cell_id = compiled.cell_id;
-        self.cells.insert(cell_id, CompiledCellInfo {
-            compiled,
-            dep_count,
-        });
+        self.cells.insert(
+            cell_id,
+            CompiledCellInfo {
+                compiled,
+                dep_count,
+            },
+        );
     }
 
     /// Unregister a cell.
@@ -305,7 +308,10 @@ impl ProcessExecutor {
         let display_text = String::from_utf8_lossy(&bytes[8..display_end]).to_string();
         let rkyv_data = bytes[display_end..].to_vec();
 
-        Ok(BoxedOutput::from_raw_bytes_with_display(rkyv_data, display_text))
+        Ok(BoxedOutput::from_raw_bytes_with_display(
+            rkyv_data,
+            display_text,
+        ))
     }
 
     /// Execute a cell and store the output in the state manager.
@@ -361,9 +367,10 @@ impl ProcessExecutor {
     /// This method is thread-safe and can be called from any thread.
     pub fn kill_current(&self) {
         if let Ok(guard) = self.current_worker_kill.lock()
-            && let Some(ref kill_handle) = *guard {
-                kill_handle.kill();
-            }
+            && let Some(ref kill_handle) = *guard
+        {
+            kill_handle.kill();
+        }
     }
 
     /// Get a handle that can be used to kill the current execution from another thread.

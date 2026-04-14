@@ -5,7 +5,7 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{Attribute, File, FnArg, ItemFn, Pat, ReturnType, Type};
 
-use super::types::{CellId, CellInfo, Dependency, DefinitionCell, MarkdownCell, SourceSpan};
+use super::types::{CellId, CellInfo, DefinitionCell, Dependency, MarkdownCell, SourceSpan};
 use crate::error::{Error, Result};
 
 /// Result of parsing a notebook file.
@@ -284,7 +284,12 @@ impl CellParser {
     }
 
     /// Finalize a markdown block and add it as a markdown cell.
-    fn finalize_markdown_block(&mut self, block: &[(String, usize)], first_line: usize, last_line: usize) {
+    fn finalize_markdown_block(
+        &mut self,
+        block: &[(String, usize)],
+        first_line: usize,
+        last_line: usize,
+    ) {
         // Join doc lines and trim leading space (Rust adds a space after //!)
         let content = block
             .iter()
@@ -441,7 +446,12 @@ impl CellParser {
             // Check if this is a definition item (not executable cell or other)
             let is_definition = matches!(
                 item,
-                Item::Use(_) | Item::Struct(_) | Item::Enum(_) | Item::Type(_) | Item::Fn(_) | Item::Impl(_)
+                Item::Use(_)
+                    | Item::Struct(_)
+                    | Item::Enum(_)
+                    | Item::Type(_)
+                    | Item::Fn(_)
+                    | Item::Impl(_)
             );
 
             // Skip items with #[venus::hide]
@@ -461,7 +471,11 @@ impl CellParser {
             if has_hide || !is_definition {
                 // This item breaks the definition block - flush any accumulated definitions
                 if !current_block.is_empty() {
-                    self.flush_definition_block(&mut current_block, block_start_line.unwrap(), block_end_line);
+                    self.flush_definition_block(
+                        &mut current_block,
+                        block_start_line.unwrap(),
+                        block_end_line,
+                    );
                     block_start_line = None;
                 }
                 continue;
@@ -483,7 +497,10 @@ impl CellParser {
 
             // Check if there are any markdown or code cells between the last definition and this one
             // If so, we need to split the definition block here
-            let should_split = if let Some(prev_end) = block_end_line.checked_sub(0).filter(|_| !current_block.is_empty()) {
+            let should_split = if let Some(prev_end) = block_end_line
+                .checked_sub(0)
+                .filter(|_| !current_block.is_empty())
+            {
                 // Check if any markdown cells fall between prev_end and span.start_line
                 let has_markdown_between = self.markdown_cells.iter().any(|md| {
                     md.span.start_line > prev_end && md.span.start_line < span.start_line
@@ -501,7 +518,11 @@ impl CellParser {
 
             if should_split {
                 // Flush current block before starting a new one
-                self.flush_definition_block(&mut current_block, block_start_line.unwrap(), block_end_line);
+                self.flush_definition_block(
+                    &mut current_block,
+                    block_start_line.unwrap(),
+                    block_end_line,
+                );
                 current_block.clear();
                 block_start_line = Some(span.start_line);
             } else if block_start_line.is_none() {
@@ -514,7 +535,11 @@ impl CellParser {
 
         // Flush any remaining block
         if !current_block.is_empty() {
-            self.flush_definition_block(&mut current_block, block_start_line.unwrap(), block_end_line);
+            self.flush_definition_block(
+                &mut current_block,
+                block_start_line.unwrap(),
+                block_end_line,
+            );
         }
     }
 
@@ -535,7 +560,12 @@ impl CellParser {
     }
 
     /// Flush accumulated definition block into a single DefinitionCell.
-    fn flush_definition_block(&mut self, block: &mut Vec<String>, start_line: usize, end_line: usize) {
+    fn flush_definition_block(
+        &mut self,
+        block: &mut Vec<String>,
+        start_line: usize,
+        end_line: usize,
+    ) {
         let combined_content = block.join("\n\n");
 
         // Determine definition type based on content
@@ -613,10 +643,17 @@ impl CellParser {
         }
 
         // Count how many different top-level types we have (excluding fn if impl is present)
-        let type_count = [has_use, has_struct, has_enum, has_type, has_impl, has_fn && !has_impl]
-            .iter()
-            .filter(|&&x| x)
-            .count();
+        let type_count = [
+            has_use,
+            has_struct,
+            has_enum,
+            has_type,
+            has_impl,
+            has_fn && !has_impl,
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
 
         // If only one type, return that specific type
         if type_count == 1 {
@@ -896,15 +933,27 @@ pub fn config() -> i32 {
         }
 
         assert_eq!(result.code_cells.len(), 1, "Should have 1 code cell");
-        assert_eq!(result.markdown_cells.len(), 2, "Should have 2 markdown cells");
+        assert_eq!(
+            result.markdown_cells.len(),
+            2,
+            "Should have 2 markdown cells"
+        );
 
         // Check first markdown cell
         assert_eq!(result.markdown_cells[0].span.start_line, 7);
-        assert!(result.markdown_cells[0].content.contains("First Markdown Cell"));
+        assert!(
+            result.markdown_cells[0]
+                .content
+                .contains("First Markdown Cell")
+        );
 
         // Check second markdown cell
         assert_eq!(result.markdown_cells[1].span.start_line, 12);
-        assert!(result.markdown_cells[1].content.contains("Second Markdown Cell"));
+        assert!(
+            result.markdown_cells[1]
+                .content
+                .contains("Second Markdown Cell")
+        );
     }
 
     #[test]
@@ -927,7 +976,10 @@ pub fn config() -> i32 {
             println!("\nMarkdown cell {}:", i);
             println!("  Lines: {}-{}", md.span.start_line, md.span.end_line);
             println!("  Content length: {}", md.content.len());
-            println!("  Content preview: {:?}", &md.content.chars().take(100).collect::<String>());
+            println!(
+                "  Content preview: {:?}",
+                &md.content.chars().take(100).collect::<String>()
+            );
         }
     }
 
@@ -956,14 +1008,20 @@ pub fn config() -> i32 {
 
         println!("\n=== Markdown Cells ===");
         for (i, md) in result.markdown_cells.iter().enumerate() {
-            println!("Markdown {}: lines {}-{}", i, md.span.start_line, md.span.end_line);
+            println!(
+                "Markdown {}: lines {}-{}",
+                i, md.span.start_line, md.span.end_line
+            );
             let preview: String = md.content.lines().take(2).collect::<Vec<_>>().join(" / ");
             println!("  Content: {:?}", preview);
         }
 
         println!("\n=== Definition Cells ===");
         for (i, def) in result.definition_cells.iter().enumerate() {
-            println!("Definition {}: lines {}-{} (type: {:?})", i, def.span.start_line, def.span.end_line, def.definition_type);
+            println!(
+                "Definition {}: lines {}-{} (type: {:?})",
+                i, def.span.start_line, def.span.end_line, def.definition_type
+            );
             let preview: String = def.content.lines().take(2).collect::<Vec<_>>().join(" / ");
             println!("  Content: {:?}", preview);
         }
@@ -978,20 +1036,46 @@ pub fn config() -> i32 {
         // Note: impl blocks have #[venus::hide] so they won't appear as definition cells
 
         // We should have 2 definition cells (imports and structs, impl blocks are hidden)
-        assert_eq!(result.definition_cells.len(), 2, "Expected 2 definition cells, got {}", result.definition_cells.len());
+        assert_eq!(
+            result.definition_cells.len(),
+            2,
+            "Expected 2 definition cells, got {}",
+            result.definition_cells.len()
+        );
 
         // First definition cell should be imports (use statements)
         use crate::graph::DefinitionType;
-        assert_eq!(result.definition_cells[0].definition_type, DefinitionType::Import, "First definition should be Import type");
+        assert_eq!(
+            result.definition_cells[0].definition_type,
+            DefinitionType::Import,
+            "First definition should be Import type"
+        );
 
         // Second definition cell should be structs
-        assert_eq!(result.definition_cells[1].definition_type, DefinitionType::Struct, "Second definition should be Struct type");
+        assert_eq!(
+            result.definition_cells[1].definition_type,
+            DefinitionType::Struct,
+            "Second definition should be Struct type"
+        );
 
         // Check we have the expected code cells
-        assert!(result.code_cells.len() >= 7, "Expected at least 7 code cells, got {}", result.code_cells.len());
+        assert!(
+            result.code_cells.len() >= 7,
+            "Expected at least 7 code cells, got {}",
+            result.code_cells.len()
+        );
 
         // Verify the specific cells that were reported as broken exist
-        assert!(result.code_cells.iter().any(|c| c.name == "category_analysis"), "category_analysis cell should exist");
-        assert!(result.code_cells.iter().any(|c| c.name == "report"), "report cell should exist");
+        assert!(
+            result
+                .code_cells
+                .iter()
+                .any(|c| c.name == "category_analysis"),
+            "category_analysis cell should exist"
+        );
+        assert!(
+            result.code_cells.iter().any(|c| c.name == "report"),
+            "report cell should exist"
+        );
     }
 }

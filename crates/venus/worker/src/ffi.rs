@@ -32,76 +32,130 @@ impl From<i32> for ExecutionResult {
 
 // Entry function types - include widget_values_ptr and widget_values_len after dependencies
 pub type EntryFn0 = unsafe extern "C" fn(
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn1 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn2 = unsafe extern "C" fn(
-    *const u8, usize,  // dep 0
-    *const u8, usize,  // dep 1
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize, // dep 0
+    *const u8,
+    usize, // dep 1
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn3 = unsafe extern "C" fn(
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn4 = unsafe extern "C" fn(
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn5 = unsafe extern "C" fn(
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn6 = unsafe extern "C" fn(
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn7 = unsafe extern "C" fn(
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 pub type EntryFn8 = unsafe extern "C" fn(
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,
-    *const u8, usize,  // widget_values
-    *mut *mut u8, *mut usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize,
+    *const u8,
+    usize, // widget_values
+    *mut *mut u8,
+    *mut usize,
 ) -> i32;
 
 /// Macro to generate FFI dispatch functions for N dependencies.

@@ -9,15 +9,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use venus_core::Error;
 use venus_core::compile::{
-    CellCompiler, CompiledCell, CompilationResult, CompilerConfig, ToolchainManager,
+    CellCompiler, CompilationResult, CompiledCell, CompilerConfig, ToolchainManager,
     UniverseBuilder,
 };
 use venus_core::execute::{ExecutionCallback, LinearExecutor};
 use venus_core::graph::{CellId, CellInfo, CellParser, GraphEngine};
 use venus_core::paths::NotebookDirs;
 use venus_core::state::{BoxedOutput, StateManager};
-use venus_core::Error;
 
 use crate::colors;
 
@@ -245,9 +245,8 @@ impl NotebookExecutor {
     pub fn compile(&self) -> anyhow::Result<CompilationInfo> {
         println!("\n{}Compiling cells...{}", colors::BOLD, colors::RESET);
 
-        let compiler =
-            CellCompiler::new(self.config.clone(), self.toolchain.clone())
-                .with_universe(self.universe_path.clone());
+        let compiler = CellCompiler::new(self.config.clone(), self.toolchain.clone())
+            .with_universe(self.universe_path.clone());
 
         let mut compiled_cells = HashMap::new();
         let mut compile_errors = Vec::new();
@@ -424,7 +423,9 @@ impl NotebookExecutor {
                 .order
                 .iter()
                 .copied()
-                .filter(|&id| id == *target_id || is_transitive_dependency(id, *target_id, &self.deps))
+                .filter(|&id| {
+                    id == *target_id || is_transitive_dependency(id, *target_id, &self.deps)
+                })
                 .collect())
         } else {
             Ok(self.order.clone())
@@ -433,7 +434,9 @@ impl NotebookExecutor {
 
     /// Get cell info by ID.
     pub fn cell_by_id(&self, cell_id: CellId) -> Option<&CellInfo> {
-        self.cells.iter().find(|c| self.cell_ids[&c.name] == cell_id)
+        self.cells
+            .iter()
+            .find(|c| self.cell_ids[&c.name] == cell_id)
     }
 
     /// Print a setup step.

@@ -4,7 +4,7 @@
 
 mod html;
 
-pub use html::{generate_html, CellExport};
+pub use html::{CellExport, generate_html};
 
 use std::collections::HashMap;
 use std::fs;
@@ -56,7 +56,9 @@ pub fn execute(
         let real_id = executor.cell_ids[&cell.name];
 
         // Check for compilation errors
-        let error = compilation.errors.iter()
+        let error = compilation
+            .errors
+            .iter()
             .find(|(name, _)| name == &cell.name)
             .map(|(_, errs)| {
                 errs.iter()
@@ -72,7 +74,11 @@ pub fn execute(
                 description: cell.doc_comment.clone(),
                 source: cell.source_code.clone(),
                 return_type: cell.return_type.clone(),
-                dependencies: cell.dependencies.iter().map(|d| d.param_name.clone()).collect(),
+                dependencies: cell
+                    .dependencies
+                    .iter()
+                    .map(|d| d.param_name.clone())
+                    .collect(),
                 output: None,
                 error,
                 execution_time_ms: None,
@@ -88,16 +94,19 @@ pub fn execute(
         for &cell_id in &execution.executed_cells {
             if let Some(cell) = executor.cell_by_id(cell_id)
                 && let Some(output) = execution.outputs.get(&cell_id)
-                    && let Some(export) = cell_exports.get_mut(&cell_id) {
-                        // Use display_text if available, otherwise try to decode
-                        let output_text = output
-                            .display_text()
-                            .map(|s| s.to_string())
-                            .or_else(|| try_decode_value(&cell.return_type, output.bytes()));
-                        export.output = output_text;
-                        export.execution_time_ms =
-                            Some(execution.execution_time.as_millis() as u64 / execution.executed_cells.len() as u64);
-                    }
+                && let Some(export) = cell_exports.get_mut(&cell_id)
+            {
+                // Use display_text if available, otherwise try to decode
+                let output_text = output
+                    .display_text()
+                    .map(|s| s.to_string())
+                    .or_else(|| try_decode_value(&cell.return_type, output.bytes()));
+                export.output = output_text;
+                export.execution_time_ms = Some(
+                    execution.execution_time.as_millis() as u64
+                        / execution.executed_cells.len() as u64,
+                );
+            }
         }
 
         println!(

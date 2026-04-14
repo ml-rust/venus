@@ -49,8 +49,8 @@ struct WindowsJobObject {
 #[cfg(windows)]
 impl WindowsJobObject {
     fn create() -> Result<Self, std::io::Error> {
-        use windows_sys::Win32::System::JobObjects::*;
         use windows_sys::Win32::Foundation::*;
+        use windows_sys::Win32::System::JobObjects::*;
 
         unsafe {
             // Create job object
@@ -79,7 +79,10 @@ impl WindowsJobObject {
         }
     }
 
-    fn assign_process(&self, process_handle: windows_sys::Win32::Foundation::HANDLE) -> Result<(), std::io::Error> {
+    fn assign_process(
+        &self,
+        process_handle: windows_sys::Win32::Foundation::HANDLE,
+    ) -> Result<(), std::io::Error> {
         use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
 
         unsafe {
@@ -177,7 +180,8 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
 
     // Start rust-analyzer in the notebook's directory (Venus workspace)
     // Client will filter diagnostics to ONLY show the notebook file
-    let notebook_dir = notebook_path.parent()
+    let notebook_dir = notebook_path
+        .parent()
         .expect("Notebook path must have a parent directory");
 
     tracing::info!("Starting rust-analyzer from: {}", ra_path.display());
@@ -185,7 +189,7 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
 
     // Build command with process group configuration
     let mut cmd = Command::new(&ra_path);
-    cmd.current_dir(notebook_dir)  // Use notebook directory for workspace access
+    cmd.current_dir(notebook_dir) // Use notebook directory for workspace access
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

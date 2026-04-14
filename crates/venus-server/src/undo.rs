@@ -174,14 +174,21 @@ impl UndoableOperation {
             Self::DuplicateCell { new_cell_name, .. } => {
                 format!("Duplicate to '{}'", new_cell_name)
             }
-            Self::MoveCell { cell_name, direction } => {
+            Self::MoveCell {
+                cell_name,
+                direction,
+            } => {
                 let dir_str = match direction {
                     MoveDirection::Up => "up",
                     MoveDirection::Down => "down",
                 };
                 format!("Move '{}' {}", cell_name, dir_str)
             }
-            Self::RenameCell { cell_name, new_display_name, .. } => {
+            Self::RenameCell {
+                cell_name,
+                new_display_name,
+                ..
+            } => {
                 format!("Rename '{}' to '{}'", cell_name, new_display_name)
             }
             Self::EditCell { start_line, .. } => {
@@ -196,7 +203,11 @@ impl UndoableOperation {
             Self::DeleteMarkdownCell { start_line, .. } => {
                 format!("Delete markdown cell at line {}", start_line)
             }
-            Self::MoveMarkdownCell { start_line, direction, .. } => {
+            Self::MoveMarkdownCell {
+                start_line,
+                direction,
+                ..
+            } => {
                 let dir_str = match direction {
                     MoveDirection::Up => "up",
                     MoveDirection::Down => "down",
@@ -212,7 +223,11 @@ impl UndoableOperation {
             Self::DeleteDefinitionCell { start_line, .. } => {
                 format!("Delete definition cell at line {}", start_line)
             }
-            Self::MoveDefinitionCell { start_line, direction, .. } => {
+            Self::MoveDefinitionCell {
+                start_line,
+                direction,
+                ..
+            } => {
                 let dir_str = match direction {
                     MoveDirection::Up => "up",
                     MoveDirection::Down => "down",
@@ -234,14 +249,21 @@ impl UndoableOperation {
             Self::DuplicateCell { new_cell_name, .. } => {
                 format!("Delete cell '{}'", new_cell_name)
             }
-            Self::MoveCell { cell_name, direction } => {
+            Self::MoveCell {
+                cell_name,
+                direction,
+            } => {
                 let dir_str = match direction {
                     MoveDirection::Up => "down",
                     MoveDirection::Down => "up",
                 };
                 format!("Move '{}' {}", cell_name, dir_str)
             }
-            Self::RenameCell { cell_name, old_display_name, .. } => {
+            Self::RenameCell {
+                cell_name,
+                old_display_name,
+                ..
+            } => {
                 format!("Rename '{}' back to '{}'", cell_name, old_display_name)
             }
             Self::EditCell { start_line, .. } => {
@@ -256,7 +278,11 @@ impl UndoableOperation {
             Self::DeleteMarkdownCell { start_line, .. } => {
                 format!("Restore markdown cell at line {}", start_line)
             }
-            Self::MoveMarkdownCell { start_line, direction, .. } => {
+            Self::MoveMarkdownCell {
+                start_line,
+                direction,
+                ..
+            } => {
                 let dir_str = match direction {
                     MoveDirection::Up => "down",
                     MoveDirection::Down => "up",
@@ -272,7 +298,11 @@ impl UndoableOperation {
             Self::DeleteDefinitionCell { start_line, .. } => {
                 format!("Restore definition cell at line {}", start_line)
             }
-            Self::MoveDefinitionCell { start_line, direction, .. } => {
+            Self::MoveDefinitionCell {
+                start_line,
+                direction,
+                ..
+            } => {
                 let dir_str = match direction {
                     MoveDirection::Up => "down",
                     MoveDirection::Down => "up",

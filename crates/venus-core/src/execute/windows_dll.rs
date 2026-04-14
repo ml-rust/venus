@@ -109,7 +109,10 @@ impl WindowsDllHandler {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("cell");
-        let extension = dll_path.extension().and_then(|s| s.to_str()).unwrap_or("dll");
+        let extension = dll_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("dll");
 
         let temp_name = format!("{}-{}.{}", original_name, uuid, extension);
         let temp_path = self.temp_dir.join(temp_name);
@@ -302,7 +305,9 @@ mod tests {
         let mut handler = WindowsDllHandler::new(temp.path().join("temp"));
 
         let fake_path = temp.path().join("fake.dll");
-        handler.active_copies.insert(fake_path.clone(), PathBuf::from("original.dll"));
+        handler
+            .active_copies
+            .insert(fake_path.clone(), PathBuf::from("original.dll"));
 
         assert!(handler.is_active(&fake_path));
         handler.release(&fake_path);
@@ -315,8 +320,8 @@ mod tests {
         let temp_dir = temp.path().join("temp");
         fs::create_dir_all(&temp_dir).unwrap();
 
-        let handler = WindowsDllHandler::new(temp_dir.clone())
-            .with_max_age(Duration::from_millis(10));
+        let handler =
+            WindowsDllHandler::new(temp_dir.clone()).with_max_age(Duration::from_millis(10));
 
         // Create an old file
         let old_file = temp_dir.join("old-test.dll");
@@ -338,13 +343,15 @@ mod tests {
         let temp_dir = temp.path().join("temp");
         fs::create_dir_all(&temp_dir).unwrap();
 
-        let mut handler = WindowsDllHandler::new(temp_dir.clone())
-            .with_max_age(Duration::from_millis(10));
+        let mut handler =
+            WindowsDllHandler::new(temp_dir.clone()).with_max_age(Duration::from_millis(10));
 
         // Create a file and mark it active
         let active_file = temp_dir.join("active.dll");
         fs::write(&active_file, b"active").unwrap();
-        handler.active_copies.insert(active_file.clone(), PathBuf::from("original.dll"));
+        handler
+            .active_copies
+            .insert(active_file.clone(), PathBuf::from("original.dll"));
 
         // Wait for it to age
         thread::sleep(Duration::from_millis(20));
@@ -373,7 +380,9 @@ mod tests {
         fs::write(&file2, b"2").unwrap();
         fs::write(&active, b"active").unwrap();
 
-        handler.active_copies.insert(active.clone(), PathBuf::from("original.dylib"));
+        handler
+            .active_copies
+            .insert(active.clone(), PathBuf::from("original.dylib"));
 
         // Clean up all
         let cleaned = handler.cleanup_all().unwrap();

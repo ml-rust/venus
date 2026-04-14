@@ -67,11 +67,7 @@ pub fn execute(notebook_path: &str, output: Option<&str>, release: bool) -> CliR
     };
 
     // Load and parse notebook
-    print!(
-        "{}  ◆ Parsing notebook{} ... ",
-        colors::BLUE,
-        colors::RESET
-    );
+    print!("{}  ◆ Parsing notebook{} ... ", colors::BLUE, colors::RESET);
     colors::flush_stdout();
 
     let mut builder = ProductionBuilder::new(config);
@@ -86,11 +82,7 @@ pub fn execute(notebook_path: &str, output: Option<&str>, release: bool) -> CliR
     );
 
     // Build
-    print!(
-        "{}  ◆ Compiling binary{} ... ",
-        colors::BLUE,
-        colors::RESET
-    );
+    print!("{}  ◆ Compiling binary{} ... ", colors::BLUE, colors::RESET);
     colors::flush_stdout();
 
     builder.build(&output_path, release)?;

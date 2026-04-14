@@ -44,27 +44,34 @@ impl SourceEditor {
     /// Acquires an exclusive advisory lock on the file to prevent
     /// concurrent modifications from other processes.
     pub fn load(path: &Path) -> Result<Self> {
-        // Open file for reading with exclusive lock
-        let lock_file = File::open(path)?;
-
-        // Try to acquire exclusive lock (non-blocking)
-        lock_file.try_lock_exclusive().map_err(|e| {
-            Error::Io(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                format!(
-                    "File is locked by another process: {}: {}",
-                    path.display(),
-                    e
-                ),
-            ))
-        })?;
-
         let content = fs::read_to_string(path)?;
+
+        // Acquire an advisory lock to prevent concurrent modifications.
+        // On Windows, fs2 locks are mandatory and block all other file access,
+        // so we only lock on Unix where advisory locks don't interfere with I/O.
+        #[cfg(unix)]
+        let lock_file = {
+            let lock_file = File::open(path)?;
+            lock_file.try_lock_exclusive().map_err(|e| {
+                Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    format!(
+                        "File is locked by another process: {}: {}",
+                        path.display(),
+                        e
+                    ),
+                ))
+            })?;
+            Some(lock_file)
+        };
+
+        #[cfg(not(unix))]
+        let lock_file: Option<File> = None;
 
         Ok(Self {
             path: path.to_path_buf(),
             content,
-            _lock_file: Some(lock_file),
+            _lock_file: lock_file,
         })
     }
 
@@ -713,7 +720,6 @@ impl SourceEditor {
     /// ensuring no other process can modify the file between save and drop.
     pub fn save(&self) -> Result<()> {
         fs::write(&self.path, &self.content)?;
-        // Lock is automatically released when SourceEditor is dropped
         Ok(())
     }
 

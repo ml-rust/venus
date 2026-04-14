@@ -72,8 +72,7 @@ fn test_all_client_messages_serialize() {
     // Serialize and deserialize each message
     for msg in messages {
         let json = serde_json::to_string(&msg).expect("Failed to serialize");
-        let parsed: ClientMessage =
-            serde_json::from_str(&json).expect("Failed to deserialize");
+        let parsed: ClientMessage = serde_json::from_str(&json).expect("Failed to deserialize");
 
         // Check that the type field matches
         let msg_type = match &msg {
@@ -238,8 +237,7 @@ fn test_all_server_messages_serialize() {
     // Serialize and deserialize each message
     for msg in messages {
         let json = serde_json::to_string(&msg).expect("Failed to serialize");
-        let parsed: ServerMessage =
-            serde_json::from_str(&json).expect("Failed to deserialize");
+        let parsed: ServerMessage = serde_json::from_str(&json).expect("Failed to deserialize");
 
         // Verify roundtrip (check discriminant matches)
         assert_eq!(
@@ -448,10 +446,7 @@ fn test_cell_state_methods() {
     ));
 
     cell.clear_output();
-    assert!(matches!(
-        &cell,
-        CellState::Code { output: None, .. }
-    ));
+    assert!(matches!(&cell, CellState::Code { output: None, .. }));
 
     // Test markdown cell (should not have dirty/status)
     let md_cell = CellState::Markdown {

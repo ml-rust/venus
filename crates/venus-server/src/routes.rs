@@ -62,9 +62,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     #[cfg(not(feature = "embedded-frontend"))]
     let router = router.route("/", get(index_handler));
 
-    router
-        .layer(CorsLayer::permissive())
-        .with_state(state)
+    router.layer(CorsLayer::permissive()).with_state(state)
 }
 
 /// Index page handler (fallback when embedded-frontend is disabled).
@@ -150,7 +148,10 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) ->
 }
 
 /// LSP WebSocket upgrade handler.
-async fn lsp_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn lsp_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
     let notebook_path = {
         let session = state.session.read().await;
         session.path().to_path_buf()
@@ -309,7 +310,8 @@ async fn handle_client_message(
                         let mut session = state_for_blocking.session.write().await;
                         session.execute_cell(cell_id).await
                     })
-                }).await;
+                })
+                .await;
 
                 match exec_result {
                     Ok(Ok(())) => {}
@@ -336,7 +338,8 @@ async fn handle_client_message(
                         let mut session = state_for_blocking.session.write().await;
                         session.execute_all().await
                     })
-                }).await;
+                })
+                .await;
 
                 match exec_result {
                     Ok(Ok(())) => {}
@@ -369,7 +372,8 @@ async fn handle_client_message(
                             let mut session = state_for_blocking.session.write().await;
                             session.execute_cell(cell_id).await
                         })
-                    }).await;
+                    })
+                    .await;
 
                     match exec_result {
                         Ok(Ok(())) => {}
@@ -466,7 +470,8 @@ async fn handle_client_message(
 
             if let Some(output) = output {
                 // Collect dirty cells
-                let dirty_cells: Vec<CellId> = session.cell_states()
+                let dirty_cells: Vec<CellId> = session
+                    .cell_states()
                     .iter()
                     .filter(|(_, s)| s.is_dirty())
                     .map(|(id, _)| *id)
@@ -490,17 +495,22 @@ async fn handle_client_message(
             match session.insert_cell(after_cell_id) {
                 Ok(new_name) => {
                     // Find the new cell's ID by name
-                    let new_cell_id = session.cell_states()
+                    let new_cell_id = session
+                        .cell_states()
                         .iter()
                         .find(|(_, s)| s.name().unwrap_or("") == new_name)
                         .map(|(id, _)| *id)
                         .unwrap_or(CellId::new(0));
 
                     // Send confirmation
-                    send_message(sender, &ServerMessage::CellInserted {
-                        cell_id: new_cell_id,
-                        error: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellInserted {
+                            cell_id: new_cell_id,
+                            error: None,
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -509,10 +519,14 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::CellInserted {
-                        cell_id: CellId::new(0),
-                        error: Some(e.to_string()),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellInserted {
+                            cell_id: CellId::new(0),
+                            error: Some(e.to_string()),
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -523,10 +537,14 @@ async fn handle_client_message(
             match session.delete_cell(cell_id) {
                 Ok(()) => {
                     // Send confirmation
-                    send_message(sender, &ServerMessage::CellDeleted {
-                        cell_id,
-                        error: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellDeleted {
+                            cell_id,
+                            error: None,
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -535,10 +553,14 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::CellDeleted {
-                        cell_id,
-                        error: Some(e.to_string()),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellDeleted {
+                            cell_id,
+                            error: Some(e.to_string()),
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -549,18 +571,23 @@ async fn handle_client_message(
             match session.duplicate_cell(cell_id) {
                 Ok(new_name) => {
                     // Find the new cell's ID by name
-                    let new_cell_id = session.cell_states()
+                    let new_cell_id = session
+                        .cell_states()
                         .iter()
                         .find(|(_, s)| s.name().unwrap_or("") == new_name)
                         .map(|(id, _)| *id)
                         .unwrap_or(CellId::new(0));
 
                     // Send confirmation
-                    send_message(sender, &ServerMessage::CellDuplicated {
-                        original_cell_id: cell_id,
-                        new_cell_id,
-                        error: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellDuplicated {
+                            original_cell_id: cell_id,
+                            new_cell_id,
+                            error: None,
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -569,11 +596,15 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::CellDuplicated {
-                        original_cell_id: cell_id,
-                        new_cell_id: CellId::new(0),
-                        error: Some(e.to_string()),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellDuplicated {
+                            original_cell_id: cell_id,
+                            new_cell_id: CellId::new(0),
+                            error: Some(e.to_string()),
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -584,10 +615,14 @@ async fn handle_client_message(
             match session.move_cell(cell_id, direction) {
                 Ok(()) => {
                     // Send confirmation
-                    send_message(sender, &ServerMessage::CellMoved {
-                        cell_id,
-                        error: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellMoved {
+                            cell_id,
+                            error: None,
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -596,10 +631,14 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::CellMoved {
-                        cell_id,
-                        error: Some(e.to_string()),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellMoved {
+                            cell_id,
+                            error: Some(e.to_string()),
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -610,11 +649,15 @@ async fn handle_client_message(
             match session.undo() {
                 Ok(description) => {
                     // Send confirmation
-                    send_message(sender, &ServerMessage::UndoResult {
-                        success: true,
-                        error: None,
-                        description: Some(description),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::UndoResult {
+                            success: true,
+                            error: None,
+                            description: Some(description),
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -623,11 +666,15 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::UndoResult {
-                        success: false,
-                        error: Some(e.to_string()),
-                        description: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::UndoResult {
+                            success: false,
+                            error: Some(e.to_string()),
+                            description: None,
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -638,11 +685,15 @@ async fn handle_client_message(
             match session.redo() {
                 Ok(description) => {
                     // Send confirmation
-                    send_message(sender, &ServerMessage::RedoResult {
-                        success: true,
-                        error: None,
-                        description: Some(description),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::RedoResult {
+                            success: true,
+                            error: None,
+                            description: Some(description),
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -651,11 +702,15 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::RedoResult {
-                        success: false,
-                        error: Some(e.to_string()),
-                        description: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::RedoResult {
+                            success: false,
+                            error: Some(e.to_string()),
+                            description: None,
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -670,9 +725,13 @@ async fn handle_client_message(
                 }
                 Err(e) => {
                     tracing::error!("Kernel restart failed: {}", e);
-                    send_message(sender, &ServerMessage::KernelRestarted {
-                        error: Some(e.to_string()),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::KernelRestarted {
+                            error: Some(e.to_string()),
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -684,17 +743,24 @@ async fn handle_client_message(
             // OutputsCleared message already broadcast by clear_outputs()
         }
 
-        ClientMessage::RenameCell { cell_id, new_display_name } => {
+        ClientMessage::RenameCell {
+            cell_id,
+            new_display_name,
+        } => {
             let mut session = state.session.write().await;
 
             match session.rename_cell(cell_id, new_display_name.clone()) {
                 Ok(()) => {
                     // Send confirmation
-                    send_message(sender, &ServerMessage::CellRenamed {
-                        cell_id,
-                        new_display_name,
-                        error: None,
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellRenamed {
+                            cell_id,
+                            new_display_name,
+                            error: None,
+                        },
+                    )
+                    .await;
 
                     // Broadcast updated state and undo/redo state to all clients
                     let state_msg = session.get_state();
@@ -703,16 +769,23 @@ async fn handle_client_message(
                     session.broadcast(undo_state);
                 }
                 Err(e) => {
-                    send_message(sender, &ServerMessage::CellRenamed {
-                        cell_id,
-                        new_display_name,
-                        error: Some(e.to_string()),
-                    }).await;
+                    send_message(
+                        sender,
+                        &ServerMessage::CellRenamed {
+                            cell_id,
+                            new_display_name,
+                            error: Some(e.to_string()),
+                        },
+                    )
+                    .await;
                 }
             }
         }
 
-        ClientMessage::InsertMarkdownCell { content, after_cell_id } => {
+        ClientMessage::InsertMarkdownCell {
+            content,
+            after_cell_id,
+        } => {
             let mut session = state.session.write().await;
 
             handle_cell_operation(
@@ -720,7 +793,8 @@ async fn handle_client_message(
                 |s| {
                     s.insert_markdown_cell(content, after_cell_id)?;
                     // Find the newly inserted markdown cell by looking at the last one
-                    let new_cell_id = s.cell_states()
+                    let new_cell_id = s
+                        .cell_states()
                         .iter()
                         .filter_map(|(id, state)| {
                             if matches!(state, CellState::Markdown { .. }) {
@@ -744,10 +818,14 @@ async fn handle_client_message(
                     },
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
-        ClientMessage::EditMarkdownCell { cell_id, new_content } => {
+        ClientMessage::EditMarkdownCell {
+            cell_id,
+            new_content,
+        } => {
             let mut session = state.session.write().await;
 
             handle_cell_operation(
@@ -758,7 +836,8 @@ async fn handle_client_message(
                     error: result.err(),
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
         ClientMessage::DeleteMarkdownCell { cell_id } => {
@@ -772,7 +851,8 @@ async fn handle_client_message(
                     error: result.err(),
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
         ClientMessage::MoveMarkdownCell { cell_id, direction } => {
@@ -786,10 +866,15 @@ async fn handle_client_message(
                     error: result.err(),
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
-        ClientMessage::InsertDefinitionCell { content, definition_type, after_cell_id } => {
+        ClientMessage::InsertDefinitionCell {
+            content,
+            definition_type,
+            after_cell_id,
+        } => {
             let mut session = state.session.write().await;
 
             handle_cell_operation(
@@ -806,10 +891,14 @@ async fn handle_client_message(
                     },
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
-        ClientMessage::EditDefinitionCell { cell_id, new_content } => {
+        ClientMessage::EditDefinitionCell {
+            cell_id,
+            new_content,
+        } => {
             let mut session = state.session.write().await;
 
             handle_cell_operation(
@@ -828,7 +917,8 @@ async fn handle_client_message(
                     },
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
         ClientMessage::DeleteDefinitionCell { cell_id } => {
@@ -842,7 +932,8 @@ async fn handle_client_message(
                     error: result.err(),
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
 
         ClientMessage::MoveDefinitionCell { cell_id, direction } => {
@@ -856,7 +947,8 @@ async fn handle_client_message(
                     error: result.err(),
                 },
                 sender,
-            ).await;
+            )
+            .await;
         }
     }
 }

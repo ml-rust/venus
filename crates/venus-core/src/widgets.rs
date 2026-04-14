@@ -163,7 +163,15 @@ impl WidgetContext {
     }
 
     /// Register a widget and return its current value.
-    fn register_slider(&mut self, id: &str, label: &str, min: f64, max: f64, step: f64, default: f64) -> f64 {
+    fn register_slider(
+        &mut self,
+        id: &str,
+        label: &str,
+        min: f64,
+        max: f64,
+        step: f64,
+        default: f64,
+    ) -> f64 {
         let value = self
             .values
             .get(id)
@@ -184,7 +192,13 @@ impl WidgetContext {
     }
 
     /// Register a text input and return its current value.
-    fn register_text_input(&mut self, id: &str, label: &str, placeholder: &str, default: &str) -> String {
+    fn register_text_input(
+        &mut self,
+        id: &str,
+        label: &str,
+        placeholder: &str,
+        default: &str,
+    ) -> String {
         let value = self
             .values
             .get(id)
@@ -203,7 +217,13 @@ impl WidgetContext {
     }
 
     /// Register a select widget and return the currently selected option.
-    fn register_select(&mut self, id: &str, label: &str, options: &[&str], default: usize) -> String {
+    fn register_select(
+        &mut self,
+        id: &str,
+        label: &str,
+        options: &[&str],
+        default: usize,
+    ) -> String {
         let selected = self
             .values
             .get(id)
@@ -218,7 +238,10 @@ impl WidgetContext {
             selected,
         });
 
-        options.get(selected).map(|s| s.to_string()).unwrap_or_default()
+        options
+            .get(selected)
+            .map(|s| s.to_string())
+            .unwrap_or_default()
     }
 
     /// Register a checkbox and return its current value.
@@ -332,7 +355,14 @@ pub fn input_slider_with_step(id: &str, min: f64, max: f64, step: f64, default: 
 /// * `max` - Maximum slider value
 /// * `step` - Step increment for the slider
 /// * `default` - Default value when first rendered
-pub fn input_slider_labeled(id: &str, label: &str, min: f64, max: f64, step: f64, default: f64) -> f64 {
+pub fn input_slider_labeled(
+    id: &str,
+    label: &str,
+    min: f64,
+    max: f64,
+    step: f64,
+    default: f64,
+) -> f64 {
     with_context(|ctx| ctx.register_slider(id, label, min, max, step, default))
 }
 
@@ -462,7 +492,13 @@ mod tests {
         let ctx = take_widget_context().unwrap();
         assert_eq!(ctx.widgets.len(), 1);
         match &ctx.widgets[0] {
-            WidgetDef::Slider { id, min, max, value, .. } => {
+            WidgetDef::Slider {
+                id,
+                min,
+                max,
+                value,
+                ..
+            } => {
                 assert_eq!(id, "speed");
                 assert_eq!(*min, 0.0);
                 assert_eq!(*max, 100.0);
@@ -502,7 +538,9 @@ mod tests {
         let ctx = take_widget_context().unwrap();
         assert_eq!(ctx.widgets.len(), 1);
         match &ctx.widgets[0] {
-            WidgetDef::TextInput { id, placeholder, .. } => {
+            WidgetDef::TextInput {
+                id, placeholder, ..
+            } => {
                 assert_eq!(id, "name");
                 assert_eq!(placeholder, "Enter name");
             }
@@ -521,7 +559,12 @@ mod tests {
         let ctx = take_widget_context().unwrap();
         assert_eq!(ctx.widgets.len(), 1);
         match &ctx.widgets[0] {
-            WidgetDef::Select { id, options, selected, .. } => {
+            WidgetDef::Select {
+                id,
+                options,
+                selected,
+                ..
+            } => {
                 assert_eq!(id, "mode");
                 assert_eq!(options, &["Fast", "Normal", "Slow"]);
                 assert_eq!(*selected, 1);

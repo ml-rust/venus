@@ -14,6 +14,18 @@ fn test_dir() -> PathBuf {
         .join("cranelift_validation")
 }
 
+/// Get the platform-specific dynamic library filename.
+/// e.g. `dylib_name("foo")` returns `"libfoo.dylib"` on macOS, `"libfoo.so"` on Linux, `"foo.dll"` on Windows.
+fn dylib_name(name: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("lib{name}.dylib")
+    } else if cfg!(target_os = "windows") {
+        format!("{name}.dll")
+    } else {
+        format!("lib{name}.so")
+    }
+}
+
 /// Compile a Rust source file to a cdylib using LLVM
 fn compile_llvm(src: &str, output: &str) -> bool {
     let dir = test_dir();
@@ -63,6 +75,7 @@ fn test_cranelift_available() {
     // Check if cranelift backend is available by trying to compile with it
     let dir = test_dir();
     let test_src = dir.join("cranelift_check.rs");
+    let lib_out = dylib_name("check");
     std::fs::write(
         &test_src,
         "#[no_mangle] pub extern \"C\" fn check() -> u32 { 42 }",
@@ -81,7 +94,7 @@ fn test_cranelift_available() {
             "--crate-type",
             "cdylib",
             "-o",
-            "libcheck.so",
+            &lib_out,
             "cranelift_check.rs",
         ])
         .status()
@@ -90,11 +103,11 @@ fn test_cranelift_available() {
 
     // Cleanup
     let _ = std::fs::remove_file(test_src);
-    let _ = std::fs::remove_file(dir.join("libcheck.so"));
+    let _ = std::fs::remove_file(dir.join(&lib_out));
 
     assert!(
         result,
-        "Cranelift compilation failed. Install with: rustup component add rustc-codegen-cranelift --toolchain nightly"
+        "Cranelift compilation failed. Install with: rustup component add rustc-codegen-cranelift-preview --toolchain nightly"
     );
 }
 
@@ -103,51 +116,72 @@ fn test_llvm_compilation() {
     let dir = test_dir();
     assert!(dir.join("universe.rs").exists(), "universe.rs not found");
 
+    let lib_out = dylib_name("universe_test");
     assert!(
-        compile_llvm("universe.rs", "libuniverse_test.so"),
+        compile_llvm("universe.rs", &lib_out),
         "LLVM compilation failed"
     );
-    assert!(
-        dir.join("libuniverse_test.so").exists(),
-        "Output library not created"
-    );
+    assert!(dir.join(&lib_out).exists(), "Output library not created");
 
     // Cleanup
-    let _ = std::fs::remove_file(dir.join("libuniverse_test.so"));
+    let _ = std::fs::remove_file(dir.join(&lib_out));
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "cross-library linking requires Unix rpath"
+)]
 fn test_cranelift_compilation() {
     let dir = test_dir();
     assert!(dir.join("cell.rs").exists(), "cell.rs not found");
 
-    // First compile universe (needed for linking)
-    compile_llvm("universe.rs", "libuniverse.so");
+    let universe_lib = dylib_name("universe");
+    let cell_lib = dylib_name("cell_test");
 
-    assert!(
-        compile_cranelift("cell.rs", "libcell_test.so"),
-        "Cranelift compilation failed"
-    );
-    assert!(
-        dir.join("libcell_test.so").exists(),
-        "Output library not created"
-    );
+    // First compile universe (needed for linking)
+    compile_llvm("universe.rs", &universe_lib);
+
+    // cell.rs links against universe, so we need -l universe
+    let result = Command::new("rustup")
+        .current_dir(&dir)
+        .args([
+            "run",
+            "nightly",
+            "rustc",
+            "--edition",
+            "2021",
+            "-Zcodegen-backend=cranelift",
+            "--crate-type",
+            "cdylib",
+            "-L",
+            ".",
+            "-l",
+            "universe",
+            "-o",
+            &cell_lib,
+            "cell.rs",
+        ])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(result, "Cranelift compilation failed");
+    assert!(dir.join(&cell_lib).exists(), "Output library not created");
 
     // Cleanup
-    let _ = std::fs::remove_file(dir.join("libcell_test.so"));
+    let _ = std::fs::remove_file(dir.join(&cell_lib));
 }
 
 #[test]
 fn test_load_llvm_library() {
     let dir = test_dir();
 
-    // Compile universe
-    assert!(
-        compile_llvm("universe.rs", "libuniverse_load.so"),
-        "Compilation failed"
-    );
+    let lib_out = dylib_name("universe_load");
 
-    let lib_path = dir.join("libuniverse_load.so");
+    // Compile universe
+    assert!(compile_llvm("universe.rs", &lib_out), "Compilation failed");
+
+    let lib_path = dir.join(&lib_out);
 
     unsafe {
         let lib = libloading::Library::new(&lib_path).expect("Failed to load library");
@@ -188,6 +222,7 @@ fn test_load_cranelift_library() {
 
     // Create a standalone cell that doesn't need universe
     let standalone_src = dir.join("cell_standalone.rs");
+    let lib_out = dylib_name("cell_standalone");
     std::fs::write(
         &standalone_src,
         r#"
@@ -218,7 +253,7 @@ fn test_load_cranelift_library() {
             "--crate-type",
             "cdylib",
             "-o",
-            "libcell_standalone.so",
+            &lib_out,
             "cell_standalone.rs",
         ])
         .status()
@@ -226,7 +261,7 @@ fn test_load_cranelift_library() {
         .unwrap_or(false);
     assert!(result, "Cranelift compilation failed");
 
-    let lib_path = dir.join("libcell_standalone.so");
+    let lib_path = dir.join(&lib_out);
 
     unsafe {
         let lib = libloading::Library::new(&lib_path).expect("Failed to load Cranelift library");
@@ -253,16 +288,34 @@ fn test_load_cranelift_library() {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "cross-library linking requires Unix rpath"
+)]
 fn test_cross_library_call() {
     let dir = test_dir();
 
+    let universe_lib = dylib_name("universe");
+    let cell_lib = dylib_name("cell_cross");
+
     // Compile universe
     assert!(
-        compile_llvm("universe.rs", "libuniverse.so"),
+        compile_llvm("universe.rs", &universe_lib),
         "Universe compilation failed"
     );
 
-    // Compile cell with explicit link to universe and rpath
+    // On macOS, fix the install name so the dynamic linker can find it via rpath
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("install_name_tool")
+            .args(["-id", &format!("@rpath/{universe_lib}"), &universe_lib])
+            .current_dir(&dir)
+            .status()
+            .expect("install_name_tool failed");
+        assert!(status.success(), "install_name_tool failed");
+    }
+
+    // Compile cell with explicit link to universe
     let rpath_arg = format!("-Clink-arg=-Wl,-rpath,{}", dir.display());
     let result = Command::new("rustup")
         .current_dir(&dir)
@@ -281,7 +334,7 @@ fn test_cross_library_call() {
             "universe",
             &rpath_arg,
             "-o",
-            "libcell_cross.so",
+            &cell_lib,
             "cell.rs",
         ])
         .status()
@@ -289,7 +342,7 @@ fn test_cross_library_call() {
         .unwrap_or(false);
     assert!(result, "Cell compilation with linking failed");
 
-    let cell_path = dir.join("libcell_cross.so");
+    let cell_path = dir.join(&cell_lib);
 
     unsafe {
         // Load cell - it should find universe via rpath
@@ -315,6 +368,9 @@ fn test_cross_library_call() {
 fn test_hot_reload() {
     let dir = test_dir();
 
+    let lib_v1 = dylib_name("hot_v1");
+    let lib_v2 = dylib_name("hot_v2");
+
     // Create a simple hot-reload test source
     let test_src = dir.join("hot_reload_test.rs");
     std::fs::write(
@@ -328,11 +384,11 @@ fn test_hot_reload() {
 
     // Compile version 1
     assert!(
-        compile_cranelift("hot_reload_test.rs", "libhot_v1.so"),
+        compile_cranelift("hot_reload_test.rs", &lib_v1),
         "V1 compilation failed"
     );
 
-    let lib_path = dir.join("libhot_v1.so");
+    let lib_path = dir.join(&lib_v1);
 
     // Load and verify version 1
     let version1 = unsafe {
@@ -357,11 +413,11 @@ fn test_hot_reload() {
 
     // Recompile (simulate hot-reload)
     assert!(
-        compile_cranelift("hot_reload_test.rs", "libhot_v2.so"),
+        compile_cranelift("hot_reload_test.rs", &lib_v2),
         "V2 compilation failed"
     );
 
-    let lib_path_v2 = dir.join("libhot_v2.so");
+    let lib_path_v2 = dir.join(&lib_v2);
 
     // Load and verify version 2
     let version2 = unsafe {
@@ -387,6 +443,9 @@ fn test_hot_reload_preserves_state() {
     let state_dir = dir.join("state_hot_reload");
     std::fs::create_dir_all(&state_dir).expect("Failed to create state dir");
 
+    let lib_v1 = dylib_name("stateful_v1");
+    let lib_v2 = dylib_name("stateful_v2");
+
     // Create a StateManager to track cell outputs
     let mut state = StateManager::new(&state_dir).expect("Failed to create StateManager");
 
@@ -405,11 +464,11 @@ fn test_hot_reload_preserves_state() {
 
     // Compile version 1
     assert!(
-        compile_cranelift("stateful_cell.rs", "libstateful_v1.so"),
+        compile_cranelift("stateful_cell.rs", &lib_v1),
         "V1 compilation failed"
     );
 
-    let lib_path_v1 = dir.join("libstateful_v1.so");
+    let lib_path_v1 = dir.join(&lib_v1);
     let cell_id = CellId::new(42);
 
     // Execute version 1 and store the output
@@ -427,7 +486,10 @@ fn test_hot_reload_preserves_state() {
 
     // Verify state is stored
     let stored = state.get_output(cell_id);
-    assert!(stored.is_some(), "Output should be stored before hot-reload");
+    assert!(
+        stored.is_some(),
+        "Output should be stored before hot-reload"
+    );
     assert_eq!(
         stored.unwrap().bytes(),
         &output_bytes[..],
@@ -436,7 +498,10 @@ fn test_hot_reload_preserves_state() {
 
     // Simulate hot-reload: save state before unloading
     let saved_output = state.get_output(cell_id).clone();
-    assert!(saved_output.is_some(), "Should have saved output before reload");
+    assert!(
+        saved_output.is_some(),
+        "Should have saved output before reload"
+    );
 
     // Update source for version 2 (compatible change - same signature)
     std::fs::write(
@@ -452,11 +517,11 @@ fn test_hot_reload_preserves_state() {
 
     // Recompile version 2
     assert!(
-        compile_cranelift("stateful_cell.rs", "libstateful_v2.so"),
+        compile_cranelift("stateful_cell.rs", &lib_v2),
         "V2 compilation failed"
     );
 
-    let lib_path_v2 = dir.join("libstateful_v2.so");
+    let lib_path_v2 = dir.join(&lib_v2);
 
     // Load version 2 (new behavior)
     let output_v2 = unsafe {
@@ -480,7 +545,8 @@ fn test_hot_reload_preserves_state() {
     let preserved_output = preserved.unwrap();
     let preserved_bytes = preserved_output.bytes();
     assert_eq!(
-        preserved_bytes, &output_bytes[..],
+        preserved_bytes,
+        &output_bytes[..],
         "Preserved state should still contain V1 output (20) until re-execution"
     );
 

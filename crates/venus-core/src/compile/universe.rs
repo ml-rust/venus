@@ -45,7 +45,11 @@ pub struct UniverseBuilder {
 
 impl UniverseBuilder {
     /// Create a new universe builder.
-    pub fn new(config: CompilerConfig, toolchain: ToolchainManager, workspace_cargo_toml: Option<PathBuf>) -> Self {
+    pub fn new(
+        config: CompilerConfig,
+        toolchain: ToolchainManager,
+        workspace_cargo_toml: Option<PathBuf>,
+    ) -> Self {
         Self {
             config,
             toolchain,
@@ -59,7 +63,11 @@ impl UniverseBuilder {
     ///
     /// Delegates to [`DependencyParser`] for dependency parsing and uses
     /// definition cells (structs, enums, type aliases) for inclusion in the universe.
-    pub fn parse_dependencies(&mut self, source: &str, definition_cells: &[DefinitionCell]) -> Result<()> {
+    pub fn parse_dependencies(
+        &mut self,
+        source: &str,
+        definition_cells: &[DefinitionCell],
+    ) -> Result<()> {
         self.parser.parse(source);
 
         // Build type_definitions from DefinitionCell contents
@@ -96,8 +104,8 @@ impl UniverseBuilder {
             }
 
             // Handle both "#[derive(" and "# [derive (" (quote! output has spaces)
-            let is_derive_attr = trimmed.starts_with("#[derive(") ||
-                                 (trimmed.starts_with("# [derive") && trimmed.contains("("));
+            let is_derive_attr = trimmed.starts_with("#[derive(")
+                || (trimmed.starts_with("# [derive") && trimmed.contains("("));
 
             if is_derive_attr {
                 // Look ahead to see if this is for a struct/enum
@@ -108,8 +116,11 @@ impl UniverseBuilder {
                     if next.is_empty() || next.starts_with("//") || next.starts_with("#[") {
                         continue; // Skip comments and other attributes
                     }
-                    if next.starts_with("pub struct ") || next.starts_with("struct ")
-                        || next.starts_with("pub enum ") || next.starts_with("enum ") {
+                    if next.starts_with("pub struct ")
+                        || next.starts_with("struct ")
+                        || next.starts_with("pub enum ")
+                        || next.starts_with("enum ")
+                    {
                         is_type_def = true;
                     }
                     break; // Found the item this derive is for
@@ -118,43 +129,44 @@ impl UniverseBuilder {
                 if is_type_def {
                     // Extract and transform derives
                     if let Some(start) = trimmed.find('(')
-                        && let Some(end) = trimmed.rfind(')') {
-                            let derives = &trimmed[start + 1..end];
-                            let mut new_derives: Vec<&str> = Vec::new();
-                            let mut has_rkyv = false;
+                        && let Some(end) = trimmed.rfind(')')
+                    {
+                        let derives = &trimmed[start + 1..end];
+                        let mut new_derives: Vec<&str> = Vec::new();
+                        let mut has_rkyv = false;
 
-                            for derive in derives.split(',').map(|s| s.trim()) {
-                                match derive {
-                                    "Serialize" | "Deserialize" => {
-                                        // Skip serde derives, we'll add rkyv
-                                    }
-                                    "Archive" | "RkyvSerialize" | "RkyvDeserialize" => {
-                                        // Already has rkyv derives
-                                        has_rkyv = true;
-                                        new_derives.push(derive);
-                                    }
-                                    other if !other.is_empty() => {
-                                        new_derives.push(other);
-                                    }
-                                    _ => {}
+                        for derive in derives.split(',').map(|s| s.trim()) {
+                            match derive {
+                                "Serialize" | "Deserialize" => {
+                                    // Skip serde derives, we'll add rkyv
                                 }
+                                "Archive" | "RkyvSerialize" | "RkyvDeserialize" => {
+                                    // Already has rkyv derives
+                                    has_rkyv = true;
+                                    new_derives.push(derive);
+                                }
+                                other if !other.is_empty() => {
+                                    new_derives.push(other);
+                                }
+                                _ => {}
                             }
-
-                            // Always add rkyv derives for structs/enums if not already present
-                            if !has_rkyv {
-                                new_derives.push("Archive");
-                                new_derives.push("RkyvSerialize");
-                                new_derives.push("RkyvDeserialize");
-                            }
-
-                            // Reconstruct the derive line
-                            result.push_str(&format!("#[derive({})]\n", new_derives.join(", ")));
-
-                            // Add rkyv attribute for archived type derives
-                            result.push_str("#[rkyv(derive(Debug))]\n");
-                            i += 1;
-                            continue;
                         }
+
+                        // Always add rkyv derives for structs/enums if not already present
+                        if !has_rkyv {
+                            new_derives.push("Archive");
+                            new_derives.push("RkyvSerialize");
+                            new_derives.push("RkyvDeserialize");
+                        }
+
+                        // Reconstruct the derive line
+                        result.push_str(&format!("#[derive({})]\n", new_derives.join(", ")));
+
+                        // Add rkyv attribute for archived type derives
+                        result.push_str("#[rkyv(derive(Debug))]\n");
+                        i += 1;
+                        continue;
+                    }
                 }
             }
 
@@ -280,28 +292,32 @@ impl UniverseBuilder {
     /// Returns the dependencies section as a string.
     fn copy_parent_dependencies(&self) -> String {
         if let Some(cargo_toml_path) = &self.workspace_cargo_toml
-            && let Ok(content) = fs::read_to_string(cargo_toml_path) {
-                // Simple parser: extract [workspace.dependencies] or [dependencies] section
-                if let Some(deps_start) = content.find("[workspace.dependencies]") {
-                    let after_deps = &content[deps_start + "[workspace.dependencies]".len()..];
+            && let Ok(content) = fs::read_to_string(cargo_toml_path)
+        {
+            // Simple parser: extract [workspace.dependencies] or [dependencies] section
+            if let Some(deps_start) = content.find("[workspace.dependencies]") {
+                let after_deps = &content[deps_start + "[workspace.dependencies]".len()..];
 
-                    // Find next section (starts with '[')
-                    let deps_end = after_deps.find("\n[").unwrap_or(after_deps.len());
-                    let deps_section = &after_deps[..deps_end];
+                // Find next section (starts with '[')
+                let deps_end = after_deps.find("\n[").unwrap_or(after_deps.len());
+                let deps_section = &after_deps[..deps_end];
 
-                    tracing::info!("Copying workspace dependencies from: {}", cargo_toml_path.display());
-                    return deps_section.trim().to_string();
-                } else if let Some(deps_start) = content.find("[dependencies]") {
-                    let after_deps = &content[deps_start + "[dependencies]".len()..];
+                tracing::info!(
+                    "Copying workspace dependencies from: {}",
+                    cargo_toml_path.display()
+                );
+                return deps_section.trim().to_string();
+            } else if let Some(deps_start) = content.find("[dependencies]") {
+                let after_deps = &content[deps_start + "[dependencies]".len()..];
 
-                    // Find next section (starts with '[')
-                    let deps_end = after_deps.find("\n[").unwrap_or(after_deps.len());
-                    let deps_section = &after_deps[..deps_end];
+                // Find next section (starts with '[')
+                let deps_end = after_deps.find("\n[").unwrap_or(after_deps.len());
+                let deps_section = &after_deps[..deps_end];
 
-                    tracing::info!("Copying dependencies from: {}", cargo_toml_path.display());
-                    return deps_section.trim().to_string();
-                }
+                tracing::info!("Copying dependencies from: {}", cargo_toml_path.display());
+                return deps_section.trim().to_string();
             }
+        }
 
         String::new()
     }
@@ -329,10 +345,9 @@ impl UniverseBuilder {
 
         // Always include venus for widget support
         if let Some(venus_path) = &self.config.venus_crate_path {
-            toml.push_str(&format!(
-                "venus = {{ path = \"{}\" }}\n",
-                venus_path.display()
-            ));
+            // Use forward slashes for TOML compatibility on Windows
+            let path_str = venus_path.display().to_string().replace('\\', "/");
+            toml.push_str(&format!("venus = {{ path = \"{path_str}\" }}\n"));
         } else {
             // Use crates.io version when not in development
             toml.push_str("venus = \"0.1\"\n");
@@ -346,11 +361,9 @@ impl UniverseBuilder {
             }
 
             if let Some(path) = &dep.path {
-                toml.push_str(&format!(
-                    "{} = {{ path = \"{}\" }}\n",
-                    dep.name,
-                    path.display()
-                ));
+                // Use forward slashes for TOML compatibility on Windows
+                let path_str = path.display().to_string().replace('\\', "/");
+                toml.push_str(&format!("{} = {{ path = \"{path_str}\" }}\n", dep.name,));
             } else if let Some(version) = &dep.version {
                 if dep.features.is_empty() {
                     toml.push_str(&format!("{} = \"{}\"\n", dep.name, version));
@@ -394,7 +407,8 @@ impl UniverseBuilder {
                         || dep_name == "venus-server"
                         || dep_name == "rkyv"
                         || dep_name == "serde_json"
-                        || dep_name == "serde" {
+                        || dep_name == "serde"
+                    {
                         continue;
                     }
                 }
@@ -431,7 +445,9 @@ impl UniverseBuilder {
         lib.push_str("pub use serde_json;\n\n");
 
         // Re-export venus widget functions and types for interactive notebooks
-        lib.push_str("pub use venus::{input_slider, input_slider_with_step, input_slider_labeled};\n");
+        lib.push_str(
+            "pub use venus::{input_slider, input_slider_with_step, input_slider_labeled};\n",
+        );
         lib.push_str("pub use venus::{input_text, input_text_with_default, input_text_labeled};\n");
         lib.push_str("pub use venus::{input_select, input_select_labeled};\n");
         lib.push_str("pub use venus::{input_checkbox, input_checkbox_labeled};\n");
@@ -583,7 +599,7 @@ pub fn hello() -> i32 { 42 }
 //! serde = "1.0"
 //! ```
 "#,
-                &[]
+                &[],
             )
             .unwrap();
         let hash2 = builder.deps_hash();

@@ -37,7 +37,7 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rkyv::{rancor, Archive, Deserialize, Serialize};
+use rkyv::{Archive, Deserialize, Serialize, rancor};
 
 /// Current cache format version.
 ///
@@ -235,7 +235,10 @@ impl CachePersistence {
     ///
     /// * `path` - Path to the cache file
     /// * `expected_toolchain` - Current toolchain version; cache is invalidated if different
-    pub fn load(path: &Path, expected_toolchain: &str) -> Result<Option<CacheSnapshot>, CacheError> {
+    pub fn load(
+        path: &Path,
+        expected_toolchain: &str,
+    ) -> Result<Option<CacheSnapshot>, CacheError> {
         // Check if cache exists
         if !path.exists() {
             tracing::debug!("No cache file at {:?}", path);
@@ -261,9 +264,8 @@ impl CachePersistence {
         }
 
         // Deserialize fully
-        let snapshot: CacheSnapshot =
-            rkyv::deserialize::<CacheSnapshot, rancor::Error>(archived)
-                .map_err(|e| CacheError::Deserialize(e.to_string()))?;
+        let snapshot: CacheSnapshot = rkyv::deserialize::<CacheSnapshot, rancor::Error>(archived)
+            .map_err(|e| CacheError::Deserialize(e.to_string()))?;
 
         // Check toolchain version
         if snapshot.toolchain_version != expected_toolchain {
@@ -306,9 +308,8 @@ impl CachePersistence {
             });
         }
 
-        let snapshot: CacheSnapshot =
-            rkyv::deserialize::<CacheSnapshot, rancor::Error>(archived)
-                .map_err(|e| CacheError::Deserialize(e.to_string()))?;
+        let snapshot: CacheSnapshot = rkyv::deserialize::<CacheSnapshot, rancor::Error>(archived)
+            .map_err(|e| CacheError::Deserialize(e.to_string()))?;
 
         Ok(Some(snapshot))
     }
@@ -477,10 +478,7 @@ mod tests {
         // Load with different toolchain
         let result = CachePersistence::load(&cache_path, "rustc 1.77.0-nightly");
 
-        assert!(matches!(
-            result,
-            Err(CacheError::ToolchainMismatch { .. })
-        ));
+        assert!(matches!(result, Err(CacheError::ToolchainMismatch { .. })));
     }
 
     #[test]
@@ -502,7 +500,11 @@ mod tests {
     fn test_cell_validity() {
         let mut snapshot = CacheSnapshot::new("test".to_string(), 0);
 
-        snapshot.add_cell(CachedCell::success("test".to_string(), 0x1234, "".to_string()));
+        snapshot.add_cell(CachedCell::success(
+            "test".to_string(),
+            0x1234,
+            "".to_string(),
+        ));
 
         // Same hash - valid
         assert!(snapshot.is_cell_valid("test", 0x1234));

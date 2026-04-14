@@ -103,7 +103,7 @@ sequenceDiagram
 3. **Compilation Phase**:
    - Generate wrapper code with proper imports
    - Compile with Cranelift to dylib
-   - **Filename includes source hash**: `libcell_config_a3f5c2d1.so`
+   - **Filename includes source hash**: `libcell_config_a3f5c2d1.{so,dylib,dll}`
    - Cleanup old dylibs with same cell name but different hash
 
 4. **Execution Phase**:
@@ -352,7 +352,7 @@ Venus uses a two-backend compilation strategy:
 
 ### Development Mode (Default)
 
-**Backend**: Cranelift JIT
+**Backend**: Cranelift
 **Speed**: ~100-500ms per cell
 **Performance**: 1.5-3x slower than LLVM at runtime
 **Use case**: Interactive development
@@ -386,7 +386,7 @@ libcell_config.so  (v2: returns 20)  ← dlopen() returns CACHED v1!
 
 ```rust
 let source_hash = compute_hash(&cell.source);
-let dylib_name = format!("libcell_{}_{:x}.so", cell.name, source_hash);
+let dylib_name = format!("{}cell_{}_{:x}.{}", dylib_prefix(), cell.name, source_hash, dylib_extension());
 ```
 
 Example progression:

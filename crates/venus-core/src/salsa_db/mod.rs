@@ -32,9 +32,9 @@ pub use conversions::{
 };
 pub use inputs::{CellOutputs, CompilerSettings, SourceFile};
 pub use queries::{
-    all_cells_executed, cell_names, cell_output, cell_output_data, compile_all_cells, compiled_cell,
-    dependency_hash, execution_order, execution_order_result, graph_analysis, graph_analysis_result,
-    invalidated_by, parallel_levels, parse_cells, parse_cells_result, QueryResult,
+    QueryResult, all_cells_executed, cell_names, cell_output, cell_output_data, compile_all_cells,
+    compiled_cell, dependency_hash, execution_order, execution_order_result, graph_analysis,
+    graph_analysis_result, invalidated_by, parallel_levels, parse_cells, parse_cells_result,
 };
 
 /// The concrete database implementation.
@@ -258,7 +258,11 @@ impl VenusDatabase {
     /// Get the output data for a cell if it executed successfully.
     ///
     /// Returns `None` if the cell is pending, running, failed, or out of bounds.
-    pub fn get_cell_output_data(&self, outputs: CellOutputs, cell_idx: usize) -> Option<CellOutputData> {
+    pub fn get_cell_output_data(
+        &self,
+        outputs: CellOutputs,
+        cell_idx: usize,
+    ) -> Option<CellOutputData> {
         cell_output_data(self, outputs, cell_idx)
     }
 
@@ -290,7 +294,12 @@ impl VenusDatabase {
     /// # Panics
     ///
     /// In debug builds, panics if `cell_idx` is out of bounds.
-    pub fn mark_cell_success(&mut self, outputs: CellOutputs, cell_idx: usize, output: CellOutputData) {
+    pub fn mark_cell_success(
+        &mut self,
+        outputs: CellOutputs,
+        cell_idx: usize,
+        output: CellOutputData,
+    ) {
         self.set_cell_output(outputs, cell_idx, ExecutionStatus::Success(output));
     }
 

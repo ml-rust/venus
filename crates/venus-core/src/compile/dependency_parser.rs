@@ -329,8 +329,8 @@ pub fn hello() -> i32 { 42 }
 
     #[test]
     fn test_dependency_builders() {
-        let dep = ExternalDependency::simple("serde", "1.0")
-            .with_features(vec!["derive".to_string()]);
+        let dep =
+            ExternalDependency::simple("serde", "1.0").with_features(vec!["derive".to_string()]);
 
         assert_eq!(dep.name, "serde");
         assert_eq!(dep.version, Some("1.0".to_string()));

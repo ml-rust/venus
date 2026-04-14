@@ -1,0 +1,275 @@
+name: Release
+run-name: Release ${{ github.ref_name }}
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Validate tag ─────────────────────────────────────────────────────────────
+  validate-version:
+    name: Validate Version Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_full_release: ${{ steps.version.outputs.is_full_release }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate tag against Cargo.toml
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#v}"
+
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version=1 \
+            | jq -r '.packages[] | select(.name == "venus") | .version')
+          CARGO_BASE=$(echo "$CARGO_VERSION" | grep -oP '^\d+\.\d+\.\d+')
+
+          echo "Tag version:        $TAG_VERSION"
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Cargo.toml base:    $CARGO_BASE"
+
+          if [[ ! "$TAG_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid tag format '$TAG'. Expected: vX.Y.Z or vX.Y.Z-label.N"
+            exit 1
+          fi
+
+          TAG_BASE="${BASH_REMATCH[1]}"
+
+          if [[ "$TAG_BASE" != "$CARGO_BASE" ]]; then
+            echo "::error::Base version mismatch! Tag '$TAG_BASE' != Cargo.toml '$CARGO_BASE'"
+            exit 1
+          fi
+
+          # Full release = no hyphen suffix (v0.1.0, not v0.1.0-beta.1)
+          if [[ "$TAG_VERSION" == *-* ]]; then
+            echo "is_full_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_full_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+  # ── CI gate ──────────────────────────────────────────────────────────────────
+  ci:
+    name: CI Gate
+    needs: validate-version
+    uses: ./.github/workflows/ci.yml
+
+  # ── Publish crates to crates.io ──────────────────────────────────────────────
+  publish-crates:
+    name: Publish to crates.io
+    needs: [validate-version, ci]
+    runs-on: ubuntu-latest
+    environment: crates.io
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set version from tag
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          CURRENT=$(cargo metadata --no-deps --format-version=1 \
+            | jq -r '.packages[] | select(.name == "venus") | .version')
+          if [[ "$VERSION" != "$CURRENT" ]]; then
+            sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+
+            if [[ "$VERSION" == *-* ]]; then
+              sed -i -E 's/(venus(-(macros|core|sync|server))? = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
+              echo "Updated internal dep versions to =$VERSION"
+            fi
+
+            echo "Updated workspace version: $CURRENT -> $VERSION"
+          else
+            echo "Version already matches, no change needed"
+          fi
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Tier 1: no internal venus dependencies
+          TIER1="venus-macros venus-core"
+          # Tier 2: depends on venus-core
+          TIER2="venus-sync"
+          # Tier 3: depends on venus-core + venus-sync
+          TIER3="venus-server"
+          # Tier 4: top-level CLI binary
+          TIER4="venus"
+
+          is_published() {
+            curl -sf \
+              -H "User-Agent: venus-ci (github.com/ml-rust/venus)" \
+              "https://crates.io/api/v1/crates/$1/$2" > /dev/null 2>&1
+          }
+
+          wait_for() {
+            local crate="$1" version="$2"
+            echo -n "  Waiting for $crate@$version..."
+            for i in $(seq 1 30); do
+              if is_published "$crate" "$version"; then
+                echo " ready"
+                return 0
+              fi
+              sleep 5
+            done
+            echo " timed out!"
+            return 1
+          }
+
+          publish_tier() {
+            local tier_name="$1"; shift
+            local crates=("$@")
+            local need_wait=()
+
+            echo "::group::Tier: $tier_name"
+            for crate in "${crates[@]}"; do
+              VERSION=$(cargo metadata --no-deps --format-version=1 \
+                | jq -r --arg name "$crate" '.packages[] | select(.name == $name) | .version')
+              if is_published "$crate" "$VERSION"; then
+                echo "  $crate@$VERSION already published — skipping"
+              else
+                echo "  Publishing $crate@$VERSION..."
+                cargo publish -p "$crate" --allow-dirty
+                need_wait+=("$crate:$VERSION")
+              fi
+            done
+
+            for entry in "${need_wait[@]}"; do
+              wait_for "${entry%%:*}" "${entry##*:}"
+            done
+            echo "::endgroup::"
+          }
+
+          publish_tier "1 (no internal deps)"  $TIER1
+          publish_tier "2 (depends on tier 1)" $TIER2
+          publish_tier "3 (depends on tier 2)" $TIER3
+          publish_tier "4 (CLI binary)"        $TIER4
+
+  # ── Build CLI binaries ───────────────────────────────────────────────────────
+  build-cli:
+    name: Build CLI (${{ matrix.label }})
+    needs: [validate-version, ci]
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            label: linux-x64
+          - runs-on: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            label: linux-arm64
+          - runs-on: macos-latest
+            target: aarch64-apple-darwin
+            label: macos-arm64
+          - runs-on: macos-15-large
+            target: x86_64-apple-darwin
+            label: macos-x64
+          - runs-on: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x64
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: release-${{ matrix.target }}
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          CURRENT=$(cargo metadata --no-deps --format-version=1 \
+            | jq -r '.packages[] | select(.name == "venus") | .version')
+          if [[ "$VERSION" != "$CURRENT" ]]; then
+            perl -i -pe "if (!\$done && /^version = \"/) { s/^version = \".*\"/version = \"$VERSION\"/; \$done=1 }" Cargo.toml
+
+            # For pre-release versions, pin internal dep requirements so semver
+            # "0.1.0" doesn't fail to match "0.1.0-beta.1"
+            if [[ "$VERSION" == *-* ]]; then
+              perl -i -pe 's/(venus(?:-(macros|core|sync|server))? = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
+              echo "Updated internal dep versions to =$VERSION"
+            fi
+
+            echo "Updated workspace version: $CURRENT -> $VERSION"
+          fi
+
+      - name: Build release binary
+        run: cargo build -p venus --release --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          chmod +x venus
+          tar czf venus-${{ needs.validate-version.outputs.version }}-${{ matrix.label }}.tar.gz venus
+          ls -lh venus-*.tar.gz
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path venus.exe -DestinationPath venus-${{ needs.validate-version.outputs.version }}-${{ matrix.label }}.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.label }}
+          path: |
+            target/${{ matrix.target }}/release/venus-*.tar.gz
+            target/${{ matrix.target }}/release/venus-*.zip
+          retention-days: 1
+
+  # ── Create GitHub Release ─────────────────────────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    needs: [validate-version, publish-crates, build-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: ./artifacts
+          pattern: "cli-*"
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.validate-version.outputs.version }}
+          name: Venus ${{ needs.validate-version.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(needs.validate-version.outputs.version, '-') }}
+          files: artifacts/*
+          fail_on_unmatched_files: true

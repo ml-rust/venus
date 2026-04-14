@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use venus_core::compile::{CellCompiler, CompilationResult, CompilerConfig, ToolchainManager, UniverseBuilder};
+use venus_core::compile::{
+    CellCompiler, CompilationResult, CompilerConfig, ToolchainManager, UniverseBuilder,
+};
 use venus_core::execute::ProcessExecutor;
 use venus_core::graph::CellParser;
 use venus_core::paths::NotebookDirs;
@@ -95,12 +97,18 @@ fn test_infinite_loop_can_be_killed() {
     // 2. It took less than 2 seconds (not stuck forever)
     println!("Execution took {:?}", elapsed);
 
-    assert!(elapsed < Duration::from_secs(2),
-        "Execution took too long ({:?}), process isolation may not be working", elapsed);
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "Execution took too long ({:?}), process isolation may not be working",
+        elapsed
+    );
 
     // The result should be an error (either Aborted or IPC error from killed process)
-    assert!(result.is_err(), "Expected error from killed execution, got: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Expected error from killed execution, got: {:?}",
+        result
+    );
 
     println!("Successfully killed infinite loop after {:?}", elapsed);
 }
-

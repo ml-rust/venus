@@ -30,7 +30,7 @@ See [SECURITY.md](SECURITY.md) for details.
 - **Interactive web UI** - Monaco editor with syntax highlighting, cell outputs, and execution status
 - **Native Rust files** - Write notebooks as `.rs` files with full rust-analyzer support
 - **Reactive dependency tracking** - Dependent cells marked dirty when upstream changes
-- **Fast compilation** - Cranelift JIT backend with smart caching (only recompiles when source changes)
+- **Fast compilation** - Cranelift codegen backend with smart caching (only recompiles when source changes)
 - **Hot reload** - Run modified cells instantly without losing state from other cells
 - **Markdown cells** - Full markdown support with syntax highlighting, images, and links
 - **Interactive widgets** - Sliders, text inputs, dropdowns, and checkboxes
@@ -121,6 +121,28 @@ See the [docs](docs/) directory for detailed documentation:
 - [CLI Reference](docs/cli.md) - Command-line interface
 - [Render Trait](docs/render.md) - Custom output formatting
 - [API Stability](STABILITY.md) - Versioning and breaking change policy
+
+## Development Setup
+
+```bash
+# Install stable Rust
+rustup install stable
+
+# Install nightly + Cranelift backend (required for fast compilation)
+rustup install nightly
+rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+
+# Run tests
+cargo test --workspace
+
+# Lint
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+> **Note:** The Cranelift codegen backend is used for fast debug compilation of notebook cells.
+> Integration tests require nightly with the Cranelift component installed.
+> Tests run on Linux, macOS, and Windows.
 
 ## Contributing
 

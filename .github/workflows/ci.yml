@@ -1,0 +1,23 @@
+# CI — thin wrapper that calls the reusable test workflow.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event.pull_request.draft == false
+    name: Test Suite
+    uses: ./.github/workflows/test.yml

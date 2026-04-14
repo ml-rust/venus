@@ -3,8 +3,8 @@
 //! Defines the message types exchanged between client and server.
 
 use serde::{Deserialize, Serialize};
-use venus_core::widgets::{WidgetDef, WidgetValue};
 use venus_core::graph::{CellId, DefinitionType};
+use venus_core::widgets::{WidgetDef, WidgetValue};
 
 // Re-export MoveDirection from venus_core for use in protocol messages
 pub use venus_core::graph::MoveDirection;

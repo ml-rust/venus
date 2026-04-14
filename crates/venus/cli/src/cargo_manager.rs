@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// Configuration for how to integrate the notebook with Cargo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,22 +69,25 @@ impl CargoManager {
         // When installed, venus-cli is in ~/.cargo/bin/venus
         // We can reference venus from crates.io
         if let Ok(exe_path) = std::env::current_exe()
-            && exe_path.starts_with(dirs::home_dir().unwrap_or_default().join(".cargo/bin")) {
-                // Installed via cargo install - use crates.io version
-                return Ok(PathBuf::from("venus")); // This will use registry version
-            }
+            && exe_path.starts_with(dirs::home_dir().unwrap_or_default().join(".cargo/bin"))
+        {
+            // Installed via cargo install - use crates.io version
+            return Ok(PathBuf::from("venus")); // This will use registry version
+        }
 
         // 3. Development mode - find relative to this binary
         if let Ok(exe_path) = std::env::current_exe() {
             // Assume: target/release/venus or target/debug/venus
             if let Some(target_dir) = exe_path.parent().and_then(|p| p.parent()) {
-                let venus_crate = target_dir.parent()
+                let venus_crate = target_dir
+                    .parent()
                     .map(|repo_root| repo_root.join("crates/venus"));
 
                 if let Some(path) = venus_crate
-                    && path.exists() {
-                        return Ok(path);
-                    }
+                    && path.exists()
+                {
+                    return Ok(path);
+                }
             }
         }
 
@@ -99,8 +102,7 @@ impl CargoManager {
             return Ok(ManifestType::None);
         }
 
-        let content = fs::read_to_string(&manifest_path)
-            .context("Failed to read Cargo.toml")?;
+        let content = fs::read_to_string(&manifest_path).context("Failed to read Cargo.toml")?;
 
         // Simple detection based on section headers
         if content.contains("[workspace]") {
@@ -144,14 +146,18 @@ impl CargoManager {
                 self.add_bin_to_manifest(notebook_name, notebook_path)?;
             }
             (ManifestType::Package, IntegrationMode::WorkspaceMember) => {
-                bail!("Cannot create workspace member: Cargo.toml is a package, not a workspace. \
-                       Convert it to a workspace first or use binary mode (remove --workspace flag).");
+                bail!(
+                    "Cannot create workspace member: Cargo.toml is a package, not a workspace. \
+                       Convert it to a workspace first or use binary mode (remove --workspace flag)."
+                );
             }
 
             // Existing workspace - add member
             (ManifestType::Workspace, IntegrationMode::Binary) => {
-                bail!("Cannot add binary: Cargo.toml is a workspace root. \
-                       Use --workspace flag to add as workspace member.");
+                bail!(
+                    "Cannot add binary: Cargo.toml is a workspace root. \
+                       Use --workspace flag to add as workspace member."
+                );
             }
             (ManifestType::Workspace, IntegrationMode::WorkspaceMember) => {
                 self.add_workspace_member(notebook_name)?;
@@ -167,8 +173,14 @@ impl CargoManager {
             bail!("Notebook name cannot be empty");
         }
 
-        if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-            bail!("Notebook name '{}' contains invalid characters. Use only alphanumeric, '-', or '_'.", name);
+        if !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        {
+            bail!(
+                "Notebook name '{}' contains invalid characters. Use only alphanumeric, '-', or '_'.",
+                name
+            );
         }
 
         if name.starts_with(|c: char| c.is_numeric()) {
@@ -201,10 +213,12 @@ serde = {{ version = "1", features = ["derive"] }}
 "#
         );
 
-        fs::write(&manifest_path, content)
-            .context("Failed to write Cargo.toml")?;
+        fs::write(&manifest_path, content).context("Failed to write Cargo.toml")?;
 
-        println!("✓ Created Cargo.toml with notebook '{}' as binary", notebook_name);
+        println!(
+            "✓ Created Cargo.toml with notebook '{}' as binary",
+            notebook_name
+        );
         Ok(())
     }
 
@@ -233,10 +247,12 @@ serde = {{ version = "1", features = ["derive"] }}
             format!("{}{}", content, bin_entry)
         };
 
-        fs::write(&manifest_path, new_content)
-            .context("Failed to update Cargo.toml")?;
+        fs::write(&manifest_path, new_content).context("Failed to update Cargo.toml")?;
 
-        println!("✓ Added notebook '{}' as binary to Cargo.toml", notebook_name);
+        println!(
+            "✓ Added notebook '{}' as binary to Cargo.toml",
+            notebook_name
+        );
         Ok(())
     }
 
@@ -275,8 +291,7 @@ resolver = "2"
 "#
         );
 
-        fs::write(&manifest_path, content)
-            .context("Failed to write Cargo.toml")?;
+        fs::write(&manifest_path, content).context("Failed to write Cargo.toml")?;
 
         // Create member directory with its own Cargo.toml
         self.create_workspace_member(notebook_name)?;
@@ -292,7 +307,10 @@ resolver = "2"
 
         // Check if member already exists
         if content.contains(&format!("\"{}\"", notebook_name)) {
-            bail!("Workspace member '{}' already exists in Cargo.toml", notebook_name);
+            bail!(
+                "Workspace member '{}' already exists in Cargo.toml",
+                notebook_name
+            );
         }
 
         // Find the members array and add the new member
@@ -313,8 +331,7 @@ resolver = "2"
             bail!("Could not find 'members' array in workspace Cargo.toml");
         };
 
-        fs::write(&manifest_path, new_content)
-            .context("Failed to update Cargo.toml")?;
+        fs::write(&manifest_path, new_content).context("Failed to update Cargo.toml")?;
 
         // Create the member directory
         self.create_workspace_member(notebook_name)?;
@@ -326,8 +343,7 @@ resolver = "2"
     /// Create a workspace member directory with Cargo.toml
     fn create_workspace_member(&self, notebook_name: &str) -> Result<()> {
         let member_dir = self.manifest_dir.join(notebook_name);
-        fs::create_dir_all(&member_dir)
-            .context("Failed to create workspace member directory")?;
+        fs::create_dir_all(&member_dir).context("Failed to create workspace member directory")?;
 
         let member_manifest = member_dir.join("Cargo.toml");
         let venus_dep = self.format_venus_dependency();
@@ -348,8 +364,7 @@ serde = {{ version = "1", features = ["derive"] }}
 "#
         );
 
-        fs::write(&member_manifest, content)
-            .context("Failed to write member Cargo.toml")?;
+        fs::write(&member_manifest, content).context("Failed to write member Cargo.toml")?;
 
         Ok(())
     }

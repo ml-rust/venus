@@ -129,9 +129,13 @@ pub fn parse_cells_result(
 
     let mut parser = CellParser::new();
     match parser.parse_str(&text, &path) {
-        Ok(parse_result) => {
-            QueryResult::Ok(parse_result.code_cells.into_iter().map(CellData::from).collect())
-        }
+        Ok(parse_result) => QueryResult::Ok(
+            parse_result
+                .code_cells
+                .into_iter()
+                .map(CellData::from)
+                .collect(),
+        ),
         Err(e) => {
             let error_msg = format!("Failed to parse '{}': {}", path.display(), e);
             tracing::error!("{}", error_msg);
@@ -172,9 +176,9 @@ fn build_graph_engine(cells: Vec<CellData>) -> Result<GraphEngine, String> {
         engine.add_cell(cell_data.into());
     }
 
-    engine.resolve_dependencies().map_err(|e| {
-        format!("Failed to resolve dependencies: {}", e)
-    })?;
+    engine
+        .resolve_dependencies()
+        .map_err(|e| format!("Failed to resolve dependencies: {}", e))?;
 
     Ok(engine)
 }
@@ -455,10 +459,7 @@ pub fn cell_output(
 ///
 /// Returns true if all cells have either succeeded or failed.
 #[salsa::tracked]
-pub fn all_cells_executed(
-    db: &dyn salsa::Database,
-    outputs: super::inputs::CellOutputs,
-) -> bool {
+pub fn all_cells_executed(db: &dyn salsa::Database, outputs: super::inputs::CellOutputs) -> bool {
     let statuses = outputs.statuses(db);
     statuses.iter().all(|s| {
         matches!(

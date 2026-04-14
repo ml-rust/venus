@@ -191,7 +191,9 @@ async fn main() -> anyhow::Result<()> {
             release,
             clear,
         } => {
-            watch::execute(&notebook, cell.as_deref(), release, clear).await.map_err(format_error)?;
+            watch::execute(&notebook, cell.as_deref(), release, clear)
+                .await
+                .map_err(format_error)?;
         }
     }
 
@@ -200,9 +202,9 @@ async fn main() -> anyhow::Result<()> {
 
 /// Create a new notebook from template.
 fn create_new_notebook(name: &str, workspace: bool) -> anyhow::Result<()> {
+    use cargo_manager::{CargoManager, IntegrationMode};
     use std::fs;
     use std::path::{Path, PathBuf};
-    use cargo_manager::{CargoManager, IntegrationMode};
 
     // Determine notebook name and file path
     let (notebook_name, filename, notebook_dir) = if workspace {

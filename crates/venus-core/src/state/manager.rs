@@ -68,7 +68,8 @@ impl StateManager {
     pub fn load<T>(&self, cell_id: CellId) -> Result<T>
     where
         T: super::output::CellOutput + rkyv::Archive,
-        T::Archived: rkyv::Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
+        T::Archived:
+            rkyv::Deserialize<T, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>,
     {
         // Try in-memory cache first
         if let Some(boxed) = self.outputs.get(&cell_id) {
@@ -534,8 +535,12 @@ mod tests {
         let (mut manager, _temp) = setup();
 
         // Save outputs for cells 0 and 2, skip cell 1
-        manager.save(CellId::new(0), &TestOutput { value: 0 }).unwrap();
-        manager.save(CellId::new(2), &TestOutput { value: 2 }).unwrap();
+        manager
+            .save(CellId::new(0), &TestOutput { value: 0 })
+            .unwrap();
+        manager
+            .save(CellId::new(2), &TestOutput { value: 2 })
+            .unwrap();
 
         let statuses = manager.sync_all_to_salsa(
             3,

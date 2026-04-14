@@ -5,7 +5,7 @@
 
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{parse_file, Attribute, File, Item};
+use syn::{Attribute, File, Item, parse_file};
 
 /// Process notebook source code for production builds.
 ///

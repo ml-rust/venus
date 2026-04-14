@@ -124,10 +124,7 @@ where
 
     // Sanity check: reject absurdly large messages (100MB)
     if len > 100 * 1024 * 1024 {
-        return Err(Error::Ipc(format!(
-            "IPC message too large: {} bytes",
-            len
-        )));
+        return Err(Error::Ipc(format!("IPC message too large: {} bytes", len)));
     }
 
     let mut bytes = vec![0u8; len];
@@ -193,7 +190,10 @@ mod tests {
         let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerResponse::Output { bytes, widgets_json } => {
+            WorkerResponse::Output {
+                bytes,
+                widgets_json,
+            } => {
                 assert_eq!(bytes, vec![1, 2, 3, 4, 5]);
                 assert!(widgets_json.is_empty());
             }
@@ -215,7 +215,10 @@ mod tests {
         let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerCommand::Execute { inputs, widget_values_json } => {
+            WorkerCommand::Execute {
+                inputs,
+                widget_values_json,
+            } => {
                 assert_eq!(inputs.len(), 2);
                 assert_eq!(inputs[0], vec![1, 2, 3]);
                 assert_eq!(inputs[1], vec![4, 5, 6]);
@@ -241,7 +244,10 @@ mod tests {
         let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerCommand::Execute { inputs, widget_values_json } => {
+            WorkerCommand::Execute {
+                inputs,
+                widget_values_json,
+            } => {
                 assert!(inputs.is_empty());
                 assert!(widget_values_json.is_empty());
             }
@@ -255,8 +261,11 @@ mod tests {
 
         let mut buf = Vec::new();
         write_message(&mut buf, &response).unwrap();
-        eprintln!("Loaded response serializes to {} bytes total ({} payload)",
-                  buf.len(), buf.len() - 4);
+        eprintln!(
+            "Loaded response serializes to {} bytes total ({} payload)",
+            buf.len(),
+            buf.len() - 4
+        );
 
         let mut cursor = Cursor::new(buf);
         let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
@@ -365,10 +374,17 @@ mod tests {
         let decoded: WorkerResponse = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerResponse::Output { bytes, widgets_json } => {
+            WorkerResponse::Output {
+                bytes,
+                widgets_json,
+            } => {
                 assert_eq!(bytes, vec![1, 2, 3, 4, 5]);
                 assert!(!widgets_json.is_empty());
-                assert!(std::str::from_utf8(&widgets_json).unwrap().contains("slider"));
+                assert!(
+                    std::str::from_utf8(&widgets_json)
+                        .unwrap()
+                        .contains("slider")
+                );
             }
             _ => panic!("Wrong response type"),
         }
@@ -388,10 +404,17 @@ mod tests {
         let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerCommand::Execute { inputs, widget_values_json } => {
+            WorkerCommand::Execute {
+                inputs,
+                widget_values_json,
+            } => {
                 assert_eq!(inputs.len(), 1);
                 assert!(!widget_values_json.is_empty());
-                assert!(std::str::from_utf8(&widget_values_json).unwrap().contains("75"));
+                assert!(
+                    std::str::from_utf8(&widget_values_json)
+                        .unwrap()
+                        .contains("75")
+                );
             }
             _ => panic!("Wrong command type"),
         }
@@ -461,7 +484,9 @@ mod tests {
         let decoded: WorkerCommand = read_message(&mut cursor).unwrap();
 
         match decoded {
-            WorkerCommand::LoadCell { dylib_path, name, .. } => {
+            WorkerCommand::LoadCell {
+                dylib_path, name, ..
+            } => {
                 assert!(dylib_path.contains("测试"));
                 assert!(name.contains("🚀"));
             }

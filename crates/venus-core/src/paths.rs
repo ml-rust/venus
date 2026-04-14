@@ -107,8 +107,7 @@ mod tests {
         let temp = TempDir::new().expect("Failed to create temp dir");
         let notebook_path = temp.path().join("test.rs");
 
-        let dirs = NotebookDirs::from_notebook_path(&notebook_path)
-            .expect("Failed to create dirs");
+        let dirs = NotebookDirs::from_notebook_path(&notebook_path).expect("Failed to create dirs");
 
         assert!(dirs.venus_dir.ends_with(".venus"));
         assert!(dirs.build_dir.exists());
@@ -121,8 +120,7 @@ mod tests {
         let temp = TempDir::new().expect("Failed to create temp dir");
         let notebook_path = temp.path().join("test.rs");
 
-        let dirs = NotebookDirs::from_notebook_path(&notebook_path)
-            .expect("Failed to create dirs");
+        let dirs = NotebookDirs::from_notebook_path(&notebook_path).expect("Failed to create dirs");
 
         // Create a test file
         let test_file = dirs.build_dir.join("test.txt");

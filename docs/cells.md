@@ -154,7 +154,7 @@ When you run a cell:
 1. Only that cell recompiles (if source changed - smart caching)
 2. Dependent cells are marked dirty (yellow) if output changed
 3. State from unaffected cells is preserved
-4. Compilation uses Cranelift JIT for speed
+4. Compilation uses Cranelift for speed
 
 **Note**: Cells are never auto-executed. Dirty marking is visual feedback only - you control when to re-run cells.
 

@@ -38,14 +38,16 @@ pub trait CellOutput: Send + Sync + 'static {
 /// Blanket implementation for all rkyv-compatible types.
 impl<T> CellOutput for T
 where
-    T: for<'a> Serialize<rkyv::rancor::Strategy<
-            rkyv::ser::Serializer<
-                rkyv::util::AlignedVec,
-                rkyv::ser::allocator::ArenaHandle<'a>,
-                rkyv::ser::sharing::Share,
+    T: for<'a> Serialize<
+            rkyv::rancor::Strategy<
+                rkyv::ser::Serializer<
+                    rkyv::util::AlignedVec,
+                    rkyv::ser::allocator::ArenaHandle<'a>,
+                    rkyv::ser::sharing::Share,
+                >,
+                rkyv::rancor::Error,
             >,
-            rkyv::rancor::Error,
-        >> + Send
+        > + Send
         + Sync
         + 'static,
 {

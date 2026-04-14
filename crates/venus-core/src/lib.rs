@@ -25,7 +25,7 @@
 //!
 //! This crate provides:
 //! - Graph engine for dependency resolution
-//! - Compilation pipeline (Cranelift JIT + LLVM)
+//! - Compilation pipeline (Cranelift + LLVM)
 //! - State management with schema evolution
 //! - Salsa-based incremental computation
 //! - Cell execution and hot-reload
@@ -41,12 +41,12 @@ pub mod state;
 pub mod widgets;
 
 pub use error::{Error, Result};
-pub use paths::NotebookDirs;
 pub use execute::{
     CellContext, ExecutionCallback, HotReloader, LinearExecutor, LoadedCell, ParallelExecutor,
     ProcessExecutor, WindowsDllHandler,
 };
 pub use graph::{CellId, CellInfo, CellParser, Dependency, GraphEngine};
+pub use paths::NotebookDirs;
 pub use salsa_db::{
     CellData, CellOutputData, CellOutputs, CompilationStatus, CompiledCellData, CompilerSettings,
     ExecutionStatus, GraphAnalysis, QueryResult, SourceFile, VenusDatabase, all_cells_executed,

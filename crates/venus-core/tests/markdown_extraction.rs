@@ -60,12 +60,22 @@ fn test_simple_notebook_markdown_extraction() {
     assert_eq!(result.code_cells[3].display_name, "report");
 
     // Check markdown cells (should have 3: module doc + 2 inline markdown cells)
-    assert_eq!(result.markdown_cells.len(), 3, "Should have 3 markdown cells");
+    assert_eq!(
+        result.markdown_cells.len(),
+        3,
+        "Should have 3 markdown cells"
+    );
 
     let module_doc = &result.markdown_cells[0];
     assert!(module_doc.is_module_doc, "Should be marked as module doc");
-    assert!(module_doc.content.contains("Simple Venus Notebook"), "Should contain title");
-    assert!(module_doc.content.contains("minimal notebook"), "Should contain description");
+    assert!(
+        module_doc.content.contains("Simple Venus Notebook"),
+        "Should contain title"
+    );
+    assert!(
+        module_doc.content.contains("minimal notebook"),
+        "Should contain description"
+    );
 
     println!("\n✓ All assertions passed!");
 }

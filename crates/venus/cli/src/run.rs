@@ -43,9 +43,10 @@ pub fn execute(
 
     for &cell_id in &execution.executed_cells {
         if let Some(cell) = executor.cell_by_id(cell_id)
-            && let Some(output) = execution.outputs.get(&cell_id) {
-                print_output(&cell.name, &cell.return_type, output.bytes());
-            }
+            && let Some(output) = execution.outputs.get(&cell_id)
+        {
+            print_output(&cell.name, &cell.return_type, output.bytes());
+        }
     }
 
     // Summary

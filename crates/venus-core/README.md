@@ -11,7 +11,7 @@ Core engine for Venus reactive notebook environment.
 This crate provides the internal engine that powers Venus notebooks:
 
 - **Graph engine** - Dependency analysis and reactive execution using petgraph
-- **Compiler** - Cranelift JIT compilation for fast development iteration
+- **Compiler** - Cranelift compilation for fast development iteration
 - **State management** - Serialization and schema evolution with rkyv
 - **Execution** - Cell execution and hot-reload with process isolation
 - **Incremental computation** - Powered by salsa for efficient re-execution

@@ -5,7 +5,7 @@
 
 use axum::{
     body::Body,
-    http::{header, Response, StatusCode},
+    http::{Response, StatusCode, header},
 };
 use rust_embed::Embed;
 
@@ -17,7 +17,10 @@ pub struct FrontendAssets;
 /// Serve an embedded frontend file.
 pub fn serve_static(path: String) -> Response<Body> {
     // Remove leading slash if present
-    let path = path.strip_prefix('/').map(|s| s.to_string()).unwrap_or(path);
+    let path = path
+        .strip_prefix('/')
+        .map(|s| s.to_string())
+        .unwrap_or(path);
 
     match FrontendAssets::get(&path) {
         Some(content) => {

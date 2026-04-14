@@ -3,8 +3,8 @@
 //! Provides resource management, progress reporting, and cooperative cancellation
 //! during cell execution.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::Error;
 use crate::graph::CellId;

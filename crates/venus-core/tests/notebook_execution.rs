@@ -203,7 +203,10 @@ fn test_build_dependency_graph() {
     // Verify all cells are in the order
     assert!(order.contains(&base_id), "Order should contain base");
     assert!(order.contains(&doubled_id), "Order should contain doubled");
-    assert!(order.contains(&plus_ten_id), "Order should contain plus_ten");
+    assert!(
+        order.contains(&plus_ten_id),
+        "Order should contain plus_ten"
+    );
 
     // Verify levels - base should be in first level, doubled in second, plus_ten in third
     let levels = graph.topological_levels(&order);
@@ -358,8 +361,7 @@ pub fn cell_c(cell_b: &i32) -> i32 {
 #[test]
 fn test_state_manager_save_load() {
     let state_dir = TestStateDir::new("state");
-    let mut state =
-        StateManager::new(state_dir.path()).expect("Failed to create state manager");
+    let mut state = StateManager::new(state_dir.path()).expect("Failed to create state manager");
 
     // Create a test cell ID
     let cell_id = CellId::new(1);
@@ -385,8 +387,7 @@ fn test_state_manager_save_load() {
 #[test]
 fn test_state_invalidation() {
     let state_dir = TestStateDir::new("state_invalidation");
-    let mut state =
-        StateManager::new(state_dir.path()).expect("Failed to create state manager");
+    let mut state = StateManager::new(state_dir.path()).expect("Failed to create state manager");
 
     let cell1 = CellId::new(1);
     let cell2 = CellId::new(2);
@@ -436,11 +437,17 @@ fn test_toolchain_detection() {
 fn test_compiler_config() {
     let dev_config = CompilerConfig::development();
     assert!(dev_config.use_cranelift, "Dev config should use Cranelift");
-    assert_eq!(dev_config.opt_level, 0, "Dev config should have opt_level 0");
+    assert_eq!(
+        dev_config.opt_level, 0,
+        "Dev config should have opt_level 0"
+    );
 
     let prod_config = CompilerConfig::production();
     assert!(!prod_config.use_cranelift, "Prod config should use LLVM");
-    assert_eq!(prod_config.opt_level, 3, "Prod config should have opt_level 3");
+    assert_eq!(
+        prod_config.opt_level, 3,
+        "Prod config should have opt_level 3"
+    );
 }
 
 // =============================================================================
@@ -472,7 +479,10 @@ fn test_schema_evolution_add_field() {
     let change = v1.compare(&v2);
 
     // Adding a field should be non-breaking (additive change)
-    assert!(!change.is_breaking(), "Adding a field should not be breaking");
+    assert!(
+        !change.is_breaking(),
+        "Adding a field should not be breaking"
+    );
     match change {
         SchemaChange::Additive { added } => {
             assert_eq!(added.len(), 1, "Should have one added field");
@@ -557,7 +567,10 @@ fn test_schema_evolution_with_state_manager() {
 
     // Detect schema change
     let change = v1_fingerprint.compare(&v2_fingerprint);
-    assert!(!change.is_breaking(), "Adding optional field should be non-breaking");
+    assert!(
+        !change.is_breaking(),
+        "Adding optional field should be non-breaking"
+    );
 
     // For breaking changes, we would invalidate:
     let v3_fingerprint = TypeFingerprint::new(
@@ -569,7 +582,10 @@ fn test_schema_evolution_with_state_manager() {
     );
 
     let breaking_change = v1_fingerprint.compare(&v3_fingerprint);
-    assert!(breaking_change.is_breaking(), "Type change should be breaking");
+    assert!(
+        breaking_change.is_breaking(),
+        "Type change should be breaking"
+    );
 
     // On breaking change, invalidate the cache
     if breaking_change.is_breaking() {
@@ -604,7 +620,11 @@ fn test_parallel_execution_correctness() {
     // Level 2: merge (1 cell)
     assert_eq!(levels.len(), 3, "Should have 3 levels");
     assert_eq!(levels[0].len(), 1, "Level 0 should have 1 cell (root)");
-    assert_eq!(levels[1].len(), 2, "Level 1 should have 2 cells (left, right)");
+    assert_eq!(
+        levels[1].len(),
+        2,
+        "Level 1 should have 2 cells (left, right)"
+    );
     assert_eq!(levels[2].len(), 1, "Level 2 should have 1 cell (merge)");
 
     // Verify that left and right are in level 1 (can execute in parallel)
@@ -681,9 +701,15 @@ fn test_parallel_execution_state_isolation() {
     state.store_output(cell_c, BoxedOutput::from_raw_bytes(vec![30]));
 
     // Verify each cell has its correct output (no cross-contamination)
-    let output_a = state.get_output(cell_a).expect("cell_a output should exist");
-    let output_b = state.get_output(cell_b).expect("cell_b output should exist");
-    let output_c = state.get_output(cell_c).expect("cell_c output should exist");
+    let output_a = state
+        .get_output(cell_a)
+        .expect("cell_a output should exist");
+    let output_b = state
+        .get_output(cell_b)
+        .expect("cell_b output should exist");
+    let output_c = state
+        .get_output(cell_c)
+        .expect("cell_c output should exist");
 
     assert_eq!(output_a.bytes(), &[10], "cell_a should have value 10");
     assert_eq!(output_b.bytes(), &[20], "cell_b should have value 20");
@@ -691,8 +717,5 @@ fn test_parallel_execution_state_isolation() {
 
     // Verify stats
     let stats = state.stats();
-    assert_eq!(
-        stats.cached_outputs, 3,
-        "Should have 3 cached outputs"
-    );
+    assert_eq!(stats.cached_outputs, 3, "Should have 3 cached outputs");
 }

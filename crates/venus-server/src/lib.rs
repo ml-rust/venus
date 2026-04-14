@@ -99,7 +99,9 @@ pub async fn serve(notebook_path: impl AsRef<Path>, config: ServerConfig) -> Ser
                     // NOTE: We do NOT auto-reload here. External file changes should be picked up
                     // manually via "Restart Kernel" button. Auto-reloading causes infinite loops
                     // when editors perform frequent auto-saves or temporary file operations.
-                    tracing::debug!("Notebook file changed externally (ignored, use Restart Kernel to apply)");
+                    tracing::debug!(
+                        "Notebook file changed externally (ignored, use Restart Kernel to apply)"
+                    );
                 }
                 FileEvent::Removed(path) => {
                     tracing::warn!("Notebook file removed: {}", path.display());

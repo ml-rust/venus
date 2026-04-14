@@ -33,7 +33,12 @@ pub struct FileWatcher {
 impl FileWatcher {
     /// Create a new file watcher for the given path.
     pub fn new(path: impl AsRef<Path>) -> ServerResult<Self> {
-        let path = path.as_ref().to_path_buf();
+        // Canonicalize to resolve symlinks (e.g. /tmp -> /private/tmp on macOS)
+        // so that path comparisons with filesystem events work correctly.
+        let path = path
+            .as_ref()
+            .canonicalize()
+            .unwrap_or_else(|_| path.as_ref().to_path_buf());
         let watch_path = if path.is_file() {
             path.parent().unwrap_or(Path::new(".")).to_path_buf()
         } else {
@@ -59,17 +64,22 @@ impl FileWatcher {
                             continue;
                         }
 
+                        // Canonicalize event path for comparison (e.g. /tmp -> /private/tmp on macOS)
+                        let canonical_path = event_path
+                            .canonicalize()
+                            .unwrap_or_else(|_| event_path.clone());
+
                         // If watching a specific file, only report events for that file
                         if let Some(ref target) = target_file
-                            && event_path != target.as_ref()
+                            && canonical_path != **target
                         {
                             continue;
                         }
 
                         let file_event = if event_path.exists() {
-                            FileEvent::Modified(event_path.clone())
+                            FileEvent::Modified(canonical_path)
                         } else {
-                            FileEvent::Removed(event_path.clone())
+                            FileEvent::Removed(canonical_path)
                         };
 
                         let _ = tx.send(file_event);
@@ -122,21 +132,21 @@ mod tests {
 
         let mut watcher = FileWatcher::new(&notebook).unwrap();
 
-        // Give the watcher time to initialize
-        sleep(Duration::from_millis(100)).await;
+        // Give the watcher time to initialize (longer on CI / slow machines)
+        sleep(Duration::from_millis(500)).await;
 
         // Modify the file
         fs::write(&notebook, "// modified content").unwrap();
 
         // Wait for debounce + processing
-        let timeout = tokio::time::timeout(Duration::from_secs(2), watcher.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(5), watcher.recv()).await;
 
         assert!(timeout.is_ok(), "Watcher did not detect modification");
         let event = timeout.unwrap();
 
         match event {
             Some(FileEvent::Modified(path)) => {
-                assert_eq!(path, notebook);
+                assert_eq!(path, notebook.canonicalize().unwrap());
             }
             Some(other) => panic!("Expected Modified event, got {:?}", other),
             None => panic!("Received None from watcher"),
@@ -145,24 +155,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_watcher_ignores_non_rust_files() {
+        // Use a directory with NO .rs files so that even if FSEvents reports
+        // directory-level changes, there is no .rs file to match against.
         let temp = TempDir::new().unwrap();
-        let notebook = temp.path().join("test.rs");
-        fs::write(&notebook, "// test").unwrap();
 
-        let mut watcher = FileWatcher::new(&notebook).unwrap();
+        let mut watcher = FileWatcher::new(temp.path()).unwrap();
 
         // Give the watcher time to initialize
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(500)).await;
 
-        // Create a non-Rust file (should be ignored)
-        let other_file = temp.path().join("test.txt");
-        fs::write(&other_file, "text content").unwrap();
+        // Create non-Rust files (should be ignored)
+        fs::write(temp.path().join("test.txt"), "text content").unwrap();
+        fs::write(temp.path().join("data.json"), "{}").unwrap();
 
         // Wait a bit to ensure no event is generated
-        let timeout =
-            tokio::time::timeout(Duration::from_millis(500), watcher.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(2), watcher.recv()).await;
 
-        // Should timeout because .txt files are filtered out
+        // Should timeout because .txt/.json files are filtered out
         assert!(timeout.is_err(), "Watcher should ignore non-.rs files");
     }
 

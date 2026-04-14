@@ -345,10 +345,9 @@ impl UniverseBuilder {
 
         // Always include venus for widget support
         if let Some(venus_path) = &self.config.venus_crate_path {
-            toml.push_str(&format!(
-                "venus = {{ path = \"{}\" }}\n",
-                venus_path.display()
-            ));
+            // Use forward slashes for TOML compatibility on Windows
+            let path_str = venus_path.display().to_string().replace('\\', "/");
+            toml.push_str(&format!("venus = {{ path = \"{path_str}\" }}\n"));
         } else {
             // Use crates.io version when not in development
             toml.push_str("venus = \"0.1\"\n");
@@ -362,11 +361,9 @@ impl UniverseBuilder {
             }
 
             if let Some(path) = &dep.path {
-                toml.push_str(&format!(
-                    "{} = {{ path = \"{}\" }}\n",
-                    dep.name,
-                    path.display()
-                ));
+                // Use forward slashes for TOML compatibility on Windows
+                let path_str = path.display().to_string().replace('\\', "/");
+                toml.push_str(&format!("{} = {{ path = \"{path_str}\" }}\n", dep.name,));
             } else if let Some(version) = &dep.version {
                 if dep.features.is_empty() {
                     toml.push_str(&format!("{} = \"{}\"\n", dep.name, version));

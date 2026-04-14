@@ -128,6 +128,10 @@ fn test_llvm_compilation() {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "cross-library linking requires Unix rpath"
+)]
 fn test_cranelift_compilation() {
     let dir = test_dir();
     assert!(dir.join("cell.rs").exists(), "cell.rs not found");
@@ -284,6 +288,10 @@ fn test_load_cranelift_library() {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "cross-library linking requires Unix rpath"
+)]
 fn test_cross_library_call() {
     let dir = test_dir();
 

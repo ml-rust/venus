@@ -1144,13 +1144,24 @@ pub fn {}() -> String {{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
+    use tempfile::TempDir;
 
-    fn create_temp_file(content: &str) -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-        file
+    struct TempFile {
+        path: PathBuf,
+        _dir: TempDir,
+    }
+
+    impl TempFile {
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    fn create_temp_file(content: &str) -> TempFile {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.rs");
+        std::fs::write(&path, content).unwrap();
+        TempFile { path, _dir: dir }
     }
 
     #[test]

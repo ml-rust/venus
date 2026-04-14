@@ -7,7 +7,7 @@ Venus is a **reactive notebook environment for Rust**. It lets you write Rust co
 Key features:
 
 - **Reactive dependency tracking**: Run a cell, and dependent cells are marked dirty (yellow indicator)
-- **Fast iteration**: Cranelift JIT compilation for rapid development
+- **Fast iteration**: Cranelift compilation for rapid development
 - **Hot-reload**: Code changes reload without losing state
 - **Native Rust**: Full rust-analyzer support, no external runtime
 - **Source-first**: Uses `.rs` files as source (not `.ipynb`)
@@ -83,7 +83,7 @@ See [Getting Started](getting-started.md) for a full tutorial.
 
 **Yes, for development workflows:**
 
-Venus uses **Cranelift JIT** for development, which compiles Rust to native code much faster than LLVM (used by evcxr and standard rustc). This gives Venus a significant speed advantage during the edit-compile-run cycle.
+Venus uses **Cranelift** for development, which compiles Rust to native code much faster than LLVM (used by evcxr and standard rustc). This gives Venus a significant speed advantage during the edit-compile-run cycle.
 
 **Typical compile times** (for a single cell with dependencies):
 
@@ -154,7 +154,7 @@ For a deep dive into Venus's execution model, see [How It Works](HOW_IT_WORKS.md
 
 3. **Faster iteration**
 
-   - Cranelift JIT (~100ms) vs LLVM (~3s) per cell
+   - Cranelift (~100ms) vs LLVM (~3s) per cell
    - Hot-reload preserves state across changes
    - No kernel restarts
 

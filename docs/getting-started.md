@@ -70,7 +70,7 @@ When you run a notebook, Venus:
 
 1. Parses all `#[venus::cell]` functions
 2. Builds a dependency graph from function parameters
-3. Compiles cells using Cranelift JIT
+3. Compiles cells using Cranelift
 4. Executes cells in topological order
 5. Displays formatted output
 

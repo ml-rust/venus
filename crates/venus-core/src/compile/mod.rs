@@ -12,9 +12,9 @@
 //! ```text
 //! Notebook (.rs)
 //!     │
-//!     ├── Dependencies Block ──► DependencyParser ──► Universe Builder ──► libvenus_universe.so
+//!     ├── Dependencies Block ──► DependencyParser ──► Universe Builder ──► libvenus_universe.{so,dylib,dll}
 //!     │
-//!     └── Cell Functions ──► Cell Compiler ──► cell_*.so (Cranelift, fast)
+//!     └── Cell Functions ──► Cell Compiler ──► cell_*.{so,dylib,dll} (Cranelift, fast)
 //!                                   │
 //!                                   └── Links against Universe
 //! ```
@@ -29,7 +29,7 @@ mod toolchain;
 mod types;
 mod universe;
 
-pub use cargo_generator::{generate_cargo_toml, ManifestConfig, ReleaseProfile};
+pub use cargo_generator::{ManifestConfig, ReleaseProfile, generate_cargo_toml};
 pub use cell::CellCompiler;
 pub use dependency_parser::{DependencyParser, ExternalDependency};
 pub use errors::{CompileError, ErrorMapper};

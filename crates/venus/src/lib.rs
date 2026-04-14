@@ -3,7 +3,7 @@
 //! Venus provides an interactive notebook experience with:
 //! - **Reactive execution**: Cells automatically re-execute when dependencies change
 //! - **Full IDE support**: Uses `.rs` files, so rust-analyzer works out of the box
-//! - **Fast compilation**: Cranelift JIT for sub-second feedback
+//! - **Fast compilation**: Cranelift for sub-second feedback
 //! - **Hot reload**: Modify code without losing state
 //!
 //! # ✅ API Stability
@@ -73,10 +73,9 @@ pub mod prelude {
 
     // Widget functions
     pub use crate::widgets::{
-        input_checkbox, input_checkbox_labeled,
-        input_select, input_select_labeled,
-        input_slider, input_slider_labeled, input_slider_with_step,
-        input_text, input_text_labeled, input_text_with_default,
+        input_checkbox, input_checkbox_labeled, input_select, input_select_labeled, input_slider,
+        input_slider_labeled, input_slider_with_step, input_text, input_text_labeled,
+        input_text_with_default,
     };
 }
 
@@ -85,8 +84,7 @@ pub use render::Render;
 
 // Re-export widget functions at crate root for convenience
 pub use widgets::{
-    input_checkbox, input_checkbox_labeled,
-    input_select, input_select_labeled,
-    input_slider, input_slider_labeled, input_slider_with_step,
-    input_text, input_text_labeled, input_text_with_default,
+    input_checkbox, input_checkbox_labeled, input_select, input_select_labeled, input_slider,
+    input_slider_labeled, input_slider_with_step, input_text, input_text_labeled,
+    input_text_with_default,
 };

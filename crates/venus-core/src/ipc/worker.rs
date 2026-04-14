@@ -50,12 +50,14 @@ impl WorkerHandle {
                 ))
             })?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            Error::Ipc("Failed to get worker stdin".to_string())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            Error::Ipc("Failed to get worker stdout".to_string())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::Ipc("Failed to get worker stdin".to_string()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Ipc("Failed to get worker stdout".to_string()))?;
 
         let mut handle = Self {
             child,
@@ -87,17 +89,18 @@ impl WorkerHandle {
 
         // 2. Look next to current executable
         if let Ok(exe_path) = std::env::current_exe()
-            && let Some(exe_dir) = exe_path.parent() {
-                let worker_name = if cfg!(windows) {
-                    "venus-worker.exe"
-                } else {
-                    "venus-worker"
-                };
-                let worker_path = exe_dir.join(worker_name);
-                if worker_path.exists() {
-                    return Ok(worker_path);
-                }
+            && let Some(exe_dir) = exe_path.parent()
+        {
+            let worker_name = if cfg!(windows) {
+                "venus-worker.exe"
+            } else {
+                "venus-worker"
+            };
+            let worker_path = exe_dir.join(worker_name);
+            if worker_path.exists() {
+                return Ok(worker_path);
             }
+        }
 
         // 3. Try system PATH via which
         let worker_name = if cfg!(windows) {
@@ -168,9 +171,10 @@ impl WorkerHandle {
 
         match self.recv_response()? {
             WorkerResponse::Loaded => Ok(()),
-            WorkerResponse::Error { message } => {
-                Err(Error::Execution(format!("Failed to load cell: {}", message)))
-            }
+            WorkerResponse::Error { message } => Err(Error::Execution(format!(
+                "Failed to load cell: {}",
+                message
+            ))),
             other => Err(Error::Ipc(format!(
                 "Unexpected response when loading cell: {:?}",
                 other
@@ -182,7 +186,8 @@ impl WorkerHandle {
     ///
     /// Returns the raw output bytes on success.
     pub fn execute(&mut self, inputs: Vec<Vec<u8>>) -> Result<Vec<u8>> {
-        self.execute_with_widgets(inputs, Vec::new()).map(|(bytes, _)| bytes)
+        self.execute_with_widgets(inputs, Vec::new())
+            .map(|(bytes, _)| bytes)
     }
 
     /// Execute the loaded cell with given inputs and widget values.
@@ -193,19 +198,21 @@ impl WorkerHandle {
         inputs: Vec<Vec<u8>>,
         widget_values_json: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<u8>)> {
-        self.send_command(&WorkerCommand::Execute { inputs, widget_values_json })?;
+        self.send_command(&WorkerCommand::Execute {
+            inputs,
+            widget_values_json,
+        })?;
 
         match self.recv_response()? {
-            WorkerResponse::Output { bytes, widgets_json } => Ok((bytes, widgets_json)),
-            WorkerResponse::Error { message } => {
-                Err(Error::Execution(message))
-            }
-            WorkerResponse::Panic { message } => {
-                Err(Error::Execution(format!(
-                    "Cell panicked: {}. Check for unwrap() on None/Err, out-of-bounds access, or other panic sources.",
-                    message
-                )))
-            }
+            WorkerResponse::Output {
+                bytes,
+                widgets_json,
+            } => Ok((bytes, widgets_json)),
+            WorkerResponse::Error { message } => Err(Error::Execution(message)),
+            WorkerResponse::Panic { message } => Err(Error::Execution(format!(
+                "Cell panicked: {}. Check for unwrap() on None/Err, out-of-bounds access, or other panic sources.",
+                message
+            ))),
             other => Err(Error::Ipc(format!(
                 "Unexpected response when executing: {:?}",
                 other
@@ -235,9 +242,9 @@ impl WorkerHandle {
         if let Err(e) = self.child.kill() {
             // ESRCH (No such process) means process already exited, which is fine
             // Check raw OS error: 3 on Unix (ESRCH), 87 on Windows (ERROR_INVALID_PARAMETER)
-            let is_already_dead = e.raw_os_error().map_or(false, |code| {
-                cfg!(unix) && code == 3 || cfg!(windows) && code == 87
-            });
+            let is_already_dead = e
+                .raw_os_error()
+                .is_some_and(|code| cfg!(unix) && code == 3 || cfg!(windows) && code == 87);
 
             if !is_already_dead {
                 tracing::warn!("Failed to kill worker: {}", e);
@@ -279,10 +286,7 @@ impl WorkerHandle {
                 if status.success() {
                     Ok(())
                 } else {
-                    Err(Error::Ipc(format!(
-                        "Worker exited with status: {}",
-                        status
-                    )))
+                    Err(Error::Ipc(format!("Worker exited with status: {}", status)))
                 }
             }
             Err(e) => Err(Error::Ipc(format!("Failed to wait for worker: {}", e))),
@@ -412,7 +416,8 @@ impl WorkerKillHandle {
             unsafe {
                 let result = libc::kill(self.pid as i32, libc::SIGKILL);
                 if result != 0 {
-                    tracing::warn!("Failed to kill worker {}: errno={}", self.pid, *libc::__errno_location());
+                    let errno = std::io::Error::last_os_error();
+                    tracing::warn!("Failed to kill worker {}: {}", self.pid, errno);
                 } else {
                     tracing::info!("SIGKILL sent successfully to worker {}", self.pid);
                 }
@@ -421,13 +426,19 @@ impl WorkerKillHandle {
 
         #[cfg(windows)]
         {
-            use windows::Win32::Foundation::CloseHandle;
-            use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-
-            unsafe {
-                if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, self.pid) {
-                    let _ = TerminateProcess(handle, 1);
-                    let _ = CloseHandle(handle);
+            let output = std::process::Command::new("taskkill")
+                .args(["/F", "/PID", &self.pid.to_string()])
+                .output();
+            match output {
+                Ok(o) if o.status.success() => {
+                    tracing::info!("taskkill sent successfully to worker {}", self.pid);
+                }
+                Ok(o) => {
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    tracing::warn!("Failed to kill worker {}: {}", self.pid, stderr.trim());
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to run taskkill for worker {}: {}", self.pid, e);
                 }
             }
         }

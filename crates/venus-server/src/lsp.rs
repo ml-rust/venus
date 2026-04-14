@@ -31,89 +31,6 @@ fn get_analyzer_processes() -> &'static Arc<Mutex<Vec<u32>>> {
     ANALYZER_PROCESSES.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
 }
 
-#[cfg(windows)]
-/// Windows Job Object handle. Child processes assigned to this job
-/// are automatically terminated when the job handle is closed (i.e., when Venus exits).
-static WINDOWS_JOB: OnceLock<Arc<Mutex<Option<WindowsJobObject>>>> = OnceLock::new();
-
-#[cfg(windows)]
-fn get_windows_job() -> &'static Arc<Mutex<Option<WindowsJobObject>>> {
-    WINDOWS_JOB.get_or_init(|| Arc::new(Mutex::new(None)))
-}
-
-#[cfg(windows)]
-struct WindowsJobObject {
-    handle: windows_sys::Win32::Foundation::HANDLE,
-}
-
-#[cfg(windows)]
-impl WindowsJobObject {
-    fn create() -> Result<Self, std::io::Error> {
-        use windows_sys::Win32::Foundation::*;
-        use windows_sys::Win32::System::JobObjects::*;
-
-        unsafe {
-            // Create job object
-            let job_handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-            if job_handle == 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Configure job to kill all processes when job handle is closed
-            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-
-            let result = SetInformationJobObject(
-                job_handle,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const _,
-                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            );
-
-            if result == 0 {
-                CloseHandle(job_handle);
-                return Err(std::io::Error::last_os_error());
-            }
-
-            Ok(Self { handle: job_handle })
-        }
-    }
-
-    fn assign_process(
-        &self,
-        process_handle: windows_sys::Win32::Foundation::HANDLE,
-    ) -> Result<(), std::io::Error> {
-        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
-
-        unsafe {
-            if AssignProcessToJobObject(self.handle, process_handle) == 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        }
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-impl Drop for WindowsJobObject {
-    fn drop(&mut self) {
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(self.handle);
-        }
-    }
-}
-
-#[cfg(windows)]
-/// Initialize the Windows job object. Called once on first LSP connection.
-async fn ensure_windows_job() -> Result<(), std::io::Error> {
-    let mut job = get_windows_job().lock().await;
-    if job.is_none() {
-        *job = Some(WindowsJobObject::create()?);
-        tracing::info!("Created Windows job object for automatic process cleanup");
-    }
-    Ok(())
-}
-
 /// Register a rust-analyzer process for cleanup on shutdown.
 async fn register_process(pid: u32) {
     let mut processes = get_analyzer_processes().lock().await;
@@ -225,14 +142,6 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
         }
     }
 
-    // On Windows: Ensure job object exists for automatic cleanup
-    #[cfg(windows)]
-    {
-        if let Err(e) = ensure_windows_job().await {
-            tracing::error!("Failed to create Windows job object: {}", e);
-        }
-    }
-
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -255,21 +164,6 @@ pub async fn handle_lsp_websocket(socket: WebSocket, notebook_path: PathBuf) {
     // Get process ID and register for cleanup
     let pid = child.id().expect("Failed to get process ID");
     register_process(pid).await;
-
-    // On Windows: Assign process to job object for automatic cleanup
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        let job = get_windows_job().lock().await;
-        if let Some(job_obj) = job.as_ref() {
-            let handle = child.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
-            if let Err(e) = job_obj.assign_process(handle) {
-                tracing::warn!("Failed to assign rust-analyzer to job object: {}", e);
-            } else {
-                tracing::debug!("Assigned rust-analyzer (PID {}) to Windows job object", pid);
-            }
-        }
-    }
 
     let stdin = child.stdin.take().expect("Failed to get stdin");
     let stdout = child.stdout.take().expect("Failed to get stdout");

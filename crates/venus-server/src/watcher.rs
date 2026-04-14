@@ -159,17 +159,18 @@ mod tests {
         let notebook = temp.path().join("test.rs");
         fs::write(&notebook, "// test").unwrap();
 
-        let mut watcher = FileWatcher::new(&notebook).unwrap();
+        // Watch the directory (not a specific file) to test extension filtering
+        let mut watcher = FileWatcher::new(temp.path()).unwrap();
 
         // Give the watcher time to initialize
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(500)).await;
 
         // Create a non-Rust file (should be ignored)
         let other_file = temp.path().join("test.txt");
         fs::write(&other_file, "text content").unwrap();
 
         // Wait a bit to ensure no event is generated
-        let timeout = tokio::time::timeout(Duration::from_millis(500), watcher.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(1), watcher.recv()).await;
 
         // Should timeout because .txt files are filtered out
         assert!(timeout.is_err(), "Watcher should ignore non-.rs files");

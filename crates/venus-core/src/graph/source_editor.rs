@@ -692,9 +692,9 @@ impl SourceEditor {
                 self.content = format!(
                     "{}{}{}{}{}",
                     &self.content[..swap_start_offset],
-                    &markdown_block,
+                    markdown_block,
                     &self.content[swap_end_offset..start_offset],
-                    &swap_block,
+                    swap_block,
                     &self.content[end_offset..]
                 );
             }
@@ -703,9 +703,9 @@ impl SourceEditor {
                 self.content = format!(
                     "{}{}{}{}{}",
                     &self.content[..start_offset],
-                    &swap_block,
+                    swap_block,
                     &self.content[end_offset..swap_start_offset],
-                    &markdown_block,
+                    markdown_block,
                     &self.content[swap_end_offset..]
                 );
             }

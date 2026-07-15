@@ -978,7 +978,7 @@ pub fn config() -> i32 {
             println!("  Content length: {}", md.content.len());
             println!(
                 "  Content preview: {:?}",
-                &md.content.chars().take(100).collect::<String>()
+                md.content.chars().take(100).collect::<String>()
             );
         }
     }

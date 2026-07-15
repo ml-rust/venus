@@ -1118,7 +1118,7 @@ impl NotebookSession {
             .iter()
             .find(|c| c.id == cell_id)
             .map(|c| c.name.clone())
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         // Check if any other cells depend on this cell
         let dependents: Vec<String> = self
@@ -1171,7 +1171,7 @@ impl NotebookSession {
             .iter()
             .find(|c| c.id == cell_id)
             .map(|c| c.name.clone())
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         // Load and edit the source file
         let mut editor = SourceEditor::load(&self.path)?;
@@ -1200,7 +1200,7 @@ impl NotebookSession {
             .iter()
             .find(|c| c.id == cell_id)
             .map(|c| c.name.clone())
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         // Load and edit the source file
         let mut editor = SourceEditor::load(&self.path)?;
@@ -1228,7 +1228,7 @@ impl NotebookSession {
             .cells
             .iter()
             .find(|c| c.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let cell_name = cell.name.clone();
         let old_source = cell.source_code.clone();
@@ -1296,7 +1296,7 @@ impl NotebookSession {
             .iter()
             .find(|c| c.id == cell_id)
             .map(|c| (c.name.clone(), c.display_name.clone()))
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         // Load and edit the source file
         let mut editor = SourceEditor::load(&self.path)?;
@@ -1374,7 +1374,7 @@ impl NotebookSession {
             .markdown_cells
             .iter()
             .find(|m| m.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let start_line = md_cell.span.start_line;
         let end_line = md_cell.span.end_line;
@@ -1411,7 +1411,7 @@ impl NotebookSession {
             .markdown_cells
             .iter()
             .find(|m| m.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let start_line = md_cell.span.start_line;
         let end_line = md_cell.span.end_line;
@@ -1448,7 +1448,7 @@ impl NotebookSession {
             .markdown_cells
             .iter()
             .find(|m| m.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let start_line = md_cell.span.start_line;
         let end_line = md_cell.span.end_line;
@@ -1621,7 +1621,7 @@ impl NotebookSession {
             .definition_cells
             .iter()
             .find(|d| d.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let start_line = def_cell.span.start_line;
         let end_line = def_cell.span.end_line;
@@ -1671,7 +1671,7 @@ impl NotebookSession {
             .definition_cells
             .iter()
             .find(|d| d.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let start_line = def_cell.span.start_line;
         let end_line = def_cell.span.end_line;
@@ -1711,7 +1711,7 @@ impl NotebookSession {
             .definition_cells
             .iter()
             .find(|d| d.id == cell_id)
-            .ok_or_else(|| ServerError::CellNotFound(cell_id))?;
+            .ok_or(ServerError::CellNotFound(cell_id))?;
 
         let start_line = def_cell.span.start_line;
         let end_line = def_cell.span.end_line;

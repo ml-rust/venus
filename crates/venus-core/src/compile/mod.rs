@@ -21,6 +21,7 @@
 
 mod cargo_generator;
 mod cell;
+mod definition_processor;
 mod dependency_parser;
 mod errors;
 mod production;

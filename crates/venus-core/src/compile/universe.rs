@@ -10,6 +10,7 @@ use std::process::Command;
 use crate::error::{Error, Result};
 use crate::graph::DefinitionCell;
 
+use super::definition_processor::process_definitions;
 use super::dependency_parser::{DependencyParser, ExternalDependency};
 use super::toolchain::ToolchainManager;
 use super::types::{CompilerConfig, dylib_extension, dylib_prefix};
@@ -36,8 +37,13 @@ pub struct UniverseBuilder {
     /// Dependency parser (handles parsing and hashing)
     parser: DependencyParser,
 
-    /// User-defined type definitions extracted from notebook
+    /// User-defined type definitions extracted from notebook (promoted to `pub`,
+    /// with rkyv derives applied).
     type_definitions: String,
+
+    /// Notebook `use` statements from definition cells, re-exported as `pub use`
+    /// so imported names are visible to every compiled cell.
+    imports: String,
 
     /// Path to workspace Cargo.toml (for copying dependencies)
     workspace_cargo_toml: Option<PathBuf>,
@@ -55,14 +61,17 @@ impl UniverseBuilder {
             toolchain,
             parser: DependencyParser::new(),
             type_definitions: String::new(),
+            imports: String::new(),
             workspace_cargo_toml,
         }
     }
 
-    /// Parse dependencies and extract type definitions from notebook source.
+    /// Parse dependencies and process definition cells from notebook source.
     ///
-    /// Delegates to [`DependencyParser`] for dependency parsing and uses
-    /// definition cells (structs, enums, type aliases) for inclusion in the universe.
+    /// Delegates to [`DependencyParser`] for dependency parsing and to
+    /// [`process_definitions`](super::definition_processor::process_definitions)
+    /// for turning definition cells into re-exportable imports (`pub use`) and
+    /// public type definitions (with rkyv derives applied).
     pub fn parse_dependencies(
         &mut self,
         source: &str,
@@ -70,121 +79,25 @@ impl UniverseBuilder {
     ) -> Result<()> {
         self.parser.parse(source);
 
-        // Build type_definitions from DefinitionCell contents
-        self.type_definitions = definition_cells
+        let contents: Vec<String> = definition_cells
             .iter()
             .map(|cell| cell.content.clone())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        // Transform derives to include rkyv
-        self.type_definitions = Self::transform_derives_to_rkyv(&self.type_definitions);
+            .collect();
+        let processed = process_definitions(&contents);
+        self.imports = processed.imports;
+        self.type_definitions = processed.type_definitions;
 
         Ok(())
     }
 
-    /// Transform derives to include rkyv serialization for all user types.
-    ///
-    /// All user-defined types (structs/enums) need rkyv derives since cells
-    /// serialize their return values. This function adds Archive, RkyvSerialize,
-    /// and RkyvDeserialize while preserving existing derives like Debug, Clone.
-    fn transform_derives_to_rkyv(source: &str) -> String {
-        let lines: Vec<&str> = source.lines().collect();
-        let mut result = String::new();
-        let mut i = 0;
-
-        while i < lines.len() {
-            let line = lines[i];
-            let trimmed = line.trim();
-
-            // Skip existing #[rkyv(...)] attributes to avoid duplication
-            if trimmed.starts_with("#[rkyv(") || trimmed.starts_with("# [rkyv") {
-                i += 1;
-                continue;
-            }
-
-            // Handle both "#[derive(" and "# [derive (" (quote! output has spaces)
-            let is_derive_attr = trimmed.starts_with("#[derive(")
-                || (trimmed.starts_with("# [derive") && trimmed.contains("("));
-
-            if is_derive_attr {
-                // Look ahead to see if this is for a struct/enum
-                let mut is_type_def = false;
-                #[allow(clippy::needless_range_loop)]
-                for j in (i + 1)..lines.len() {
-                    let next = lines[j].trim();
-                    if next.is_empty() || next.starts_with("//") || next.starts_with("#[") {
-                        continue; // Skip comments and other attributes
-                    }
-                    if next.starts_with("pub struct ")
-                        || next.starts_with("struct ")
-                        || next.starts_with("pub enum ")
-                        || next.starts_with("enum ")
-                    {
-                        is_type_def = true;
-                    }
-                    break; // Found the item this derive is for
-                }
-
-                if is_type_def {
-                    // Extract and transform derives
-                    if let Some(start) = trimmed.find('(')
-                        && let Some(end) = trimmed.rfind(')')
-                    {
-                        let derives = &trimmed[start + 1..end];
-                        let mut new_derives: Vec<&str> = Vec::new();
-                        let mut has_rkyv = false;
-
-                        for derive in derives.split(',').map(|s| s.trim()) {
-                            match derive {
-                                "Serialize" | "Deserialize" => {
-                                    // Skip serde derives, we'll add rkyv
-                                }
-                                "Archive" | "RkyvSerialize" | "RkyvDeserialize" => {
-                                    // Already has rkyv derives
-                                    has_rkyv = true;
-                                    new_derives.push(derive);
-                                }
-                                other if !other.is_empty() => {
-                                    new_derives.push(other);
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        // Always add rkyv derives for structs/enums if not already present
-                        if !has_rkyv {
-                            new_derives.push("Archive");
-                            new_derives.push("RkyvSerialize");
-                            new_derives.push("RkyvDeserialize");
-                        }
-
-                        // Reconstruct the derive line
-                        result.push_str(&format!("#[derive({})]\n", new_derives.join(", ")));
-
-                        // Add rkyv attribute for archived type derives
-                        result.push_str("#[rkyv(derive(Debug))]\n");
-                        i += 1;
-                        continue;
-                    }
-                }
-            }
-
-            result.push_str(line);
-            result.push('\n');
-            i += 1;
-        }
-
-        result
-    }
-
-    /// Get the dependencies hash (includes type definitions).
+    /// Get the dependencies hash (includes imports and type definitions).
     pub fn deps_hash(&self) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         self.parser.calculate_hash().hash(&mut hasher);
+        self.imports.hash(&mut hasher);
         self.type_definitions.hash(&mut hasher);
         hasher.finish()
     }
@@ -463,6 +376,14 @@ impl UniverseBuilder {
             }
         }
 
+        // Re-export notebook imports so their names are visible to cells (which
+        // link this crate and glob-import it via `use venus_universe::*;`).
+        if !self.imports.is_empty() {
+            lib.push_str("\n// Notebook imports (re-exported for cells)\n");
+            lib.push_str(&self.imports);
+            lib.push('\n');
+        }
+
         // Include user-defined type definitions from the notebook
         if !self.type_definitions.is_empty() {
             lib.push_str("\n// User-defined types from notebook\n");
@@ -497,11 +418,130 @@ impl UniverseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{CellId, DefinitionType, SourceSpan};
 
     fn make_builder() -> UniverseBuilder {
         let config = CompilerConfig::default();
         let toolchain = ToolchainManager::new().unwrap();
         UniverseBuilder::new(config, toolchain, None)
+    }
+
+    /// Build a definition cell of the given type with the given content.
+    fn def_cell(content: &str, definition_type: DefinitionType) -> DefinitionCell {
+        DefinitionCell {
+            id: CellId::new(0),
+            content: content.to_string(),
+            definition_type,
+            span: SourceSpan {
+                start_line: 1,
+                start_col: 0,
+                end_line: 1,
+                end_col: content.len(),
+            },
+            source_file: PathBuf::from("notebook.rs"),
+            doc_comment: None,
+        }
+    }
+
+    /// Assert that a notebook `use` statement referencing `path_fragment` appears
+    /// in the generated universe and is re-exported (`pub use`), never left as a
+    /// private `use`. A private `use` in the universe crate is invisible to cells
+    /// (which link the universe and glob-import it), which is exactly the failure
+    /// where a notebook import "doesn't work" for a cell that names the type.
+    fn assert_import_reexported(lib: &str, path_fragment: &str) {
+        // The universe is rendered from `syn` tokens, which space out `::`, so
+        // compare with all whitespace removed.
+        let strip = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let needle = strip(path_fragment);
+
+        let matching: Vec<&str> = lib
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| l.contains("use") && strip(l).contains(&needle))
+            .collect();
+
+        assert!(
+            !matching.is_empty(),
+            "expected an import referencing `{path_fragment}` in generated universe, found none:\n{lib}"
+        );
+
+        for line in matching {
+            assert!(
+                strip(line).starts_with("pubuse"),
+                "notebook import `{line}` must be re-exported as `pub use` so cells can see it, \
+                 but it was emitted as a private `use` (invisible through `use venus_universe::*`)"
+            );
+        }
+    }
+
+    #[test]
+    fn universe_reexports_named_import_from_definition_cell() {
+        let mut builder = make_builder();
+        let cells = vec![def_cell(
+            "use plotlars::polars::prelude::DataFrame;",
+            DefinitionType::Import,
+        )];
+        builder.parse_dependencies("", &cells).unwrap();
+
+        let lib = builder.generate_lib_rs();
+        assert_import_reexported(&lib, "plotlars::polars::prelude::DataFrame");
+    }
+
+    #[test]
+    fn universe_reexports_glob_import_from_definition_cell() {
+        let mut builder = make_builder();
+        let cells = vec![def_cell("use venus::prelude::*;", DefinitionType::Import)];
+        builder.parse_dependencies("", &cells).unwrap();
+
+        let lib = builder.generate_lib_rs();
+        assert_import_reexported(&lib, "venus::prelude::*");
+    }
+
+    #[test]
+    fn universe_reexports_aliased_import_from_definition_cell() {
+        let mut builder = make_builder();
+        let cells = vec![def_cell(
+            "use std::collections::HashMap as Map;",
+            DefinitionType::Import,
+        )];
+        builder.parse_dependencies("", &cells).unwrap();
+
+        let lib = builder.generate_lib_rs();
+        assert_import_reexported(&lib, "std::collections::HashMap as Map");
+    }
+
+    #[test]
+    fn universe_reexports_multiple_imports_in_one_cell() {
+        let mut builder = make_builder();
+        let cells = vec![def_cell(
+            "use std::collections::HashMap;\nuse std::collections::BTreeMap;",
+            DefinitionType::Import,
+        )];
+        builder.parse_dependencies("", &cells).unwrap();
+
+        let lib = builder.generate_lib_rs();
+        assert_import_reexported(&lib, "std::collections::HashMap");
+        assert_import_reexported(&lib, "std::collections::BTreeMap");
+    }
+
+    #[test]
+    fn universe_reexports_use_from_mixed_definition_cell() {
+        let mut builder = make_builder();
+        // A single definition cell that mixes a `use` with a type definition is
+        // classified as `Mixed`; its import must still reach cells, and its type
+        // must still be present.
+        let cells = vec![def_cell(
+            "use std::collections::HashMap;\n\npub struct Config {\n    pub map: HashMap<String, i32>,\n}",
+            DefinitionType::Mixed,
+        )];
+        builder.parse_dependencies("", &cells).unwrap();
+
+        let lib = builder.generate_lib_rs();
+        assert_import_reexported(&lib, "std::collections::HashMap");
+        assert!(
+            lib.contains("struct Config"),
+            "type definition from a mixed cell must still be present in the universe:\n{lib}"
+        );
     }
 
     #[test]

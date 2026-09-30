@@ -94,55 +94,50 @@ impl DependencyParser {
     /// //! ```
     /// ```
     pub fn parse(&mut self, source: &str) -> &[ExternalDependency] {
-        self.dependencies.clear();
-
-        let mut in_cargo_block = false;
-        let mut in_dependencies = false;
-        let mut toml_content = String::new();
-
-        for line in source.lines() {
-            let trimmed = line.trim();
-
-            // Check for cargo block markers
-            if trimmed.starts_with("//!") {
-                let content = trimmed.trim_start_matches("//!").trim();
-
-                if content == "```cargo" {
-                    in_cargo_block = true;
-                    continue;
-                }
-
-                if content == "```" && in_cargo_block {
-                    in_cargo_block = false;
-                    in_dependencies = false;
-                    continue;
-                }
-
-                if in_cargo_block {
-                    if content == "[dependencies]" {
-                        in_dependencies = true;
-                        continue;
-                    }
-
-                    if content.starts_with('[') {
-                        in_dependencies = false;
-                        continue;
-                    }
-
-                    if in_dependencies && !content.is_empty() {
-                        toml_content.push_str(content);
-                        toml_content.push('\n');
-                    }
-                }
-            }
-        }
-
-        // Parse the TOML content
-        if !toml_content.is_empty() {
-            self.parse_toml_dependencies(&toml_content);
-        }
-
+        self.dependencies =
+            super::notebook_manifest::notebook_document(source, std::path::Path::new("notebook"))
+                .ok()
+                .and_then(|mut document| {
+                    document
+                        .remove("dependencies")
+                        .and_then(|value| match value {
+                            toml::Value::Table(table) => Some(table),
+                            _ => None,
+                        })
+                })
+                .map(|dependencies| {
+                    dependencies
+                        .iter()
+                        .map(|(name, value)| ExternalDependency {
+                            name: name.clone(),
+                            version: value
+                                .as_str()
+                                .or_else(|| value.get("version").and_then(toml::Value::as_str))
+                                .map(str::to_string),
+                            features: value
+                                .get("features")
+                                .and_then(toml::Value::as_array)
+                                .map(|features| {
+                                    features
+                                        .iter()
+                                        .filter_map(toml::Value::as_str)
+                                        .map(str::to_string)
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            path: value
+                                .get("path")
+                                .and_then(toml::Value::as_str)
+                                .map(PathBuf::from),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
         &self.dependencies
+    }
+
+    pub(super) fn set_dependencies(&mut self, dependencies: Vec<ExternalDependency>) {
+        self.dependencies = dependencies;
     }
 
     /// Get the parsed dependencies.
@@ -155,85 +150,6 @@ impl DependencyParser {
         let mut hasher = DefaultHasher::new();
         self.dependencies.hash(&mut hasher);
         hasher.finish()
-    }
-
-    /// Parse TOML-format dependencies.
-    fn parse_toml_dependencies(&mut self, toml: &str) {
-        for line in toml.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            // Parse: name = "version" or name = { version = "...", ... }
-            if let Some((name, value)) = line.split_once('=') {
-                let name = name.trim().to_string();
-                let value = value.trim();
-
-                let dep = if value.starts_with('"') {
-                    // Simple version: name = "1.0"
-                    let version = value.trim_matches('"').to_string();
-                    ExternalDependency {
-                        name,
-                        version: Some(version),
-                        features: Vec::new(),
-                        path: None,
-                    }
-                } else if value.starts_with('{') {
-                    // Table format: name = { version = "1.0", features = [...] }
-                    Self::parse_table_dependency(name, value)
-                } else {
-                    continue;
-                };
-
-                self.dependencies.push(dep);
-            }
-        }
-    }
-
-    /// Parse a table-format dependency.
-    fn parse_table_dependency(name: String, value: &str) -> ExternalDependency {
-        let mut version = None;
-        let mut features = Vec::new();
-        let mut path = None;
-
-        // Simple parser for inline tables
-        let content = value.trim_start_matches('{').trim_end_matches('}');
-
-        for part in content.split(',') {
-            let part = part.trim();
-            if let Some((key, val)) = part.split_once('=') {
-                let key = key.trim();
-                let val = val.trim();
-
-                match key {
-                    "version" => {
-                        version = Some(val.trim_matches('"').to_string());
-                    }
-                    "path" => {
-                        path = Some(PathBuf::from(val.trim_matches('"')));
-                    }
-                    "features" => {
-                        // Parse array: ["feat1", "feat2"]
-                        let arr = val.trim_start_matches('[').trim_end_matches(']');
-                        for feat in arr.split(',') {
-                            let feat = feat.trim().trim_matches('"');
-                            if !feat.is_empty() {
-                                features.push(feat.to_string());
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        ExternalDependency {
-            name,
-            version,
-            features,
-            path,
-        }
     }
 }
 

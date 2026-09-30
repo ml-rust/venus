@@ -11,8 +11,9 @@ use crate::error::{Error, Result};
 use crate::graph::{CellInfo, CellParser, GraphEngine};
 
 use super::CompilerConfig;
-use super::cargo_generator::{ManifestConfig, ReleaseProfile, generate_cargo_toml};
+use super::cargo_generator::{ManifestConfig, ReleaseProfile};
 use super::dependency_parser::DependencyParser;
+use super::notebook_manifest::{NotebookContext, ResolvedManifest};
 use super::source_processor::NotebookSourceProcessor;
 
 /// Builder for standalone production binaries.
@@ -33,6 +34,8 @@ pub struct ProductionBuilder {
     /// Dependency parser
     parser: DependencyParser,
 
+    resolved: ResolvedManifest,
+
     /// Original notebook source
     source: String,
 
@@ -48,6 +51,7 @@ impl ProductionBuilder {
             cells: Vec::new(),
             graph: GraphEngine::new(),
             parser: DependencyParser::new(),
+            resolved: ResolvedManifest::default(),
             source: String::new(),
             notebook_path: PathBuf::new(),
         }
@@ -69,7 +73,7 @@ impl ProductionBuilder {
 
         // Parse cells
         let mut parser = CellParser::new();
-        let parse_result = parser.parse_file(path)?;
+        let parse_result = parser.parse_str(&self.source, path)?;
         self.cells = parse_result.code_cells;
 
         // Validate unique cell names
@@ -84,7 +88,11 @@ impl ProductionBuilder {
         self.graph.resolve_dependencies()?;
 
         // Parse external dependencies
-        self.parser.parse(&self.source);
+        let context = NotebookContext::for_notebook(path)?;
+        let resolved = ResolvedManifest::resolve(&context, &self.source)?;
+        self.parser
+            .set_dependencies(resolved.external_dependencies());
+        self.resolved = resolved.with_runtime(&self.config, &context.directory)?;
 
         Ok(())
     }
@@ -129,6 +137,7 @@ impl ProductionBuilder {
         // Generate Cargo.toml
         let cargo_toml = self.generate_cargo_toml()?;
         fs::write(build_dir.join("Cargo.toml"), cargo_toml)?;
+        fs::write(build_dir.join("build.rs"), self.resolved.build_script())?;
 
         // Generate main.rs
         let main_rs = self.generate_main_rs()?;
@@ -207,36 +216,6 @@ impl ProductionBuilder {
             .unwrap_or("notebook")
             .replace('-', "_");
 
-        // Get the notebook directory for resolving relative paths
-        let notebook_dir = self
-            .notebook_path
-            .parent()
-            .ok_or_else(|| Error::Compilation {
-                cell_id: None,
-                message: format!(
-                    "Could not determine parent directory for notebook: {}",
-                    self.notebook_path.display()
-                ),
-            })?;
-
-        // Validate all path dependencies can be resolved
-        for dep in self.parser.dependencies() {
-            if let Some(path) = &dep.path
-                && path.is_relative()
-            {
-                let full_path = notebook_dir.join(path);
-                full_path.canonicalize().map_err(|e| Error::Compilation {
-                    cell_id: None,
-                    message: format!(
-                        "Failed to resolve path dependency '{}' ({}): {}",
-                        dep.name,
-                        full_path.display(),
-                        e
-                    ),
-                })?;
-            }
-        }
-
         let config = ManifestConfig {
             name: &name,
             version: "0.1.0",
@@ -246,12 +225,24 @@ impl ProductionBuilder {
             standalone_workspace: true,
         };
 
-        Ok(generate_cargo_toml(
-            &config,
-            self.parser.dependencies(),
-            true, // Always include serde for consistency
-            Some(notebook_dir),
-        ))
+        let mut resolved = self.resolved.clone();
+        // Preserve production defaults only when the notebook has no declaration.
+        resolved.dependencies.entry("serde").or_insert_with(|| {
+            toml::Value::Table(toml::Table::from_iter([
+                ("version".into(), toml::Value::String("1.0".into())),
+                (
+                    "features".into(),
+                    toml::Value::Array(vec![toml::Value::String("derive".into())]),
+                ),
+            ]))
+        });
+        resolved.dependencies.entry("bincode").or_insert_with(|| {
+            toml::Value::Table(toml::Table::from_iter([(
+                "version".into(),
+                toml::Value::String("1.3".into()),
+            )]))
+        });
+        resolved.render(&config)
     }
 
     /// Generate main.rs with all cells and execution logic.

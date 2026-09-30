@@ -148,20 +148,17 @@ pub fn generate_cargo_toml(
 fn format_dependency(toml: &mut String, dep: &ExternalDependency, notebook_dir: Option<&Path>) {
     if let Some(path) = &dep.path {
         // Convert relative paths to absolute if notebook_dir is provided
-        let abs_path = if path.is_relative() {
+        let canonical_path = if path.is_relative() {
             notebook_dir
                 .map(|dir| dir.join(path))
                 .and_then(|p| p.canonicalize().ok())
-                .unwrap_or_else(|| path.clone())
         } else {
-            path.clone()
+            None
         };
+        let abs_path = canonical_path.as_deref().unwrap_or(path);
 
-        toml.push_str(&format!(
-            "{} = {{ path = \"{}\" }}\n",
-            dep.name,
-            abs_path.display()
-        ));
+        let path = toml::Value::String(abs_path.to_string_lossy().into_owned()).to_string();
+        toml.push_str(&format!("{} = {{ path = {path} }}\n", dep.name));
     } else if let Some(version) = &dep.version {
         if dep.features.is_empty() {
             toml.push_str(&format!("{} = \"{}\"\n", dep.name, version));
@@ -273,6 +270,31 @@ mod tests {
         let toml = generate_cargo_toml(&ManifestConfig::default(), &deps, false, None);
 
         assert!(toml.contains("local_crate = { path = \"/absolute/path/to/crate\" }"));
+    }
+
+    #[test]
+    fn path_dependencies_preserve_native_toml_strings() {
+        for path in [
+            r"C:\notebooks\local",
+            r"\\?\C:\notebooks\local",
+            r"\\server\share\local",
+            r"\\?\UNC\server\share\local",
+            r"local\component",
+            r#"/notebooks/quoted "component"/local"#,
+        ] {
+            let deps = [ExternalDependency {
+                name: "local_crate".into(),
+                version: None,
+                features: vec![],
+                path: Some(PathBuf::from(path)),
+            }];
+            let source = generate_cargo_toml(&ManifestConfig::default(), &deps, false, None);
+            let manifest: toml::Table = toml::from_str(&source).unwrap();
+            assert_eq!(
+                manifest["dependencies"]["local_crate"]["path"].as_str(),
+                Some(path)
+            );
+        }
     }
 
     #[test]

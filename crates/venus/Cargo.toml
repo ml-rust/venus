@@ -25,6 +25,11 @@ name = "venus-worker"
 path = "worker/src/main.rs"
 required-features = ["cli"]
 
+[[test]]
+name = "workspace"
+path = "cli/tests/workspace.rs"
+required-features = ["cli"]
+
 [dependencies]
 # Core library dependencies (always available)
 venus-macros.workspace = true

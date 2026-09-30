@@ -41,6 +41,58 @@ Parameters must match the return type of the dependency:
 | `Vec<T>`           | `&Vec<T>`      |
 | `CustomType`       | `&CustomType`  |
 
+## Workspace Notebooks
+
+Venus reads the nearest parent `Cargo.toml` for each notebook. Package notebooks inherit declared normal dependencies and target dependencies. Both interactive execution and standalone builds use this context.
+
+Workspace members expand `workspace = true` from their owning workspace. Unused entries in `workspace.dependencies` stay excluded. Notebooks beneath a virtual workspace root use its dependency catalog.
+
+```toml
+# Workspace Cargo.toml
+[workspace]
+members = ["analysis", "internal-model"]
+
+[workspace.dependencies]
+model = { package = "internal-model", path = "internal-model", default-features = false }
+```
+
+```toml
+# analysis/Cargo.toml
+[package]
+name = "analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+model.workspace = true
+```
+
+```rust
+// analysis/notebooks/report.rs
+#[venus::cell]
+pub fn answer() -> i32 {
+    model::answer()
+}
+```
+
+Notebook `cargo` blocks override matching dependency aliases. Paths in those blocks resolve from the notebook directory. Member dependency paths resolve from the member directory. Inherited dependency paths and root patch paths resolve from the workspace directory.
+
+````rust
+//! ```cargo
+//! [dependencies.model]
+//! package = "internal-model"
+//! path = "../../alternate-model"
+//! features = ["reporting"]
+//! ```
+````
+
+- **Aliases and sources:** Cargo package aliases, Git selectors, registry selectors, and root patches survive generation.
+- **Features:** Feature arrays, disabled defaults, optional dependencies, and feature activation graphs retain Cargo semantics.
+- **Targets:** Target dependencies keep their target conditions. Dependency exports follow target and optional feature activation.
+- **Runtime dependencies:** Venus requires compatible `venus`, `rkyv`, and `serde_json` aliases. Compatible additional features survive generation. Conflicting packages or sources return contextual errors.
+- **Cache:** Manifest changes invalidate dependency hashes. Local dependency and patch paths bypass universe caching and refresh compiled cells after reloads.
+- **Isolation:** Generated Cargo projects contain their own `[workspace]` table.
+
 ## Doc Comments
 
 Doc comments become cell descriptions:

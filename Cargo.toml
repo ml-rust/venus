@@ -25,6 +25,8 @@ venus-sync = { path = "crates/venus-sync", version = "0" }
 venus-server = { path = "crates/venus-server", version = "0" }
 
 # Parsing and AST
+toml = "0.8"
+semver = "1.0"
 syn = { version = "2.0", features = [
     "full",
     "parsing",

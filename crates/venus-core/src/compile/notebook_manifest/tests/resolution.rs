@@ -1,6 +1,6 @@
 use super::super::{NotebookContext, ResolvedManifest};
 use super::fixtures::*;
-use crate::compile::ManifestConfig;
+use crate::compile::{CompilerConfig, ManifestConfig};
 use std::fs;
 use std::path::Path;
 use toml::{Table, Value};
@@ -18,11 +18,11 @@ fn member_inherits_declared_aliases_and_features_from_workspace() {
     );
     assert_eq!(
         Path::new(alias["path"].as_str().unwrap()),
-        dir.path().join("internal")
+        dir.path().join("internal").canonicalize().unwrap()
     );
     assert_eq!(
         Path::new(resolved.dependencies["direct"]["path"].as_str().unwrap()),
-        dir.path().join("direct")
+        dir.path().join("direct").canonicalize().unwrap()
     );
     assert!(!resolved.dependencies.contains_key("unused"));
     assert_eq!(
@@ -31,7 +31,7 @@ fn member_inherits_declared_aliases_and_features_from_workspace() {
                 .as_str()
                 .unwrap()
         ),
-        dir.path().join("patched")
+        dir.path().join("patched").canonicalize().unwrap()
     );
     assert!(resolved.reexports().contains("pub use internal_alias;"));
     let manifest: Table = toml::from_str(
@@ -86,7 +86,7 @@ fn notebook_declarations_replace_parent_aliases_and_rebase_paths() {
                 .as_str()
                 .unwrap()
         ),
-        dir.path().join("direct")
+        dir.path().join("direct").canonicalize().unwrap()
     );
 }
 
@@ -246,4 +246,133 @@ fn target_override_rejects_conflicting_generic_dependency_source() {
     assert!(error.contains("internal-alias"));
     assert!(error.contains("different packages or sources"));
     assert!(dir.path().exists());
+}
+
+#[test]
+fn rendered_manifests_preserve_native_path_strings() {
+    for path in [
+        r"C:\notebooks\local",
+        r"\\?\C:\notebooks\local",
+        r"\\server\share\local",
+        r"\\?\UNC\server\share\local",
+        r"local\component",
+        r#"/notebooks/quoted "component"/local"#,
+    ] {
+        let dependency = Value::Table(Table::from_iter([(
+            "path".into(),
+            Value::String(path.into()),
+        )]));
+        let resolved = ResolvedManifest {
+            dependencies: Table::from_iter([("local".into(), dependency.clone())]),
+            targets: Table::from_iter([(
+                "cfg(windows)".into(),
+                Value::Table(Table::from_iter([(
+                    "dependencies".into(),
+                    Value::Table(Table::from_iter([("local".into(), dependency.clone())])),
+                )])),
+            )]),
+            patches: Table::from_iter([(
+                "crates-io".into(),
+                Value::Table(Table::from_iter([("local".into(), dependency)])),
+            )]),
+            ..ResolvedManifest::default()
+        };
+        let manifest: Table =
+            toml::from_str(&resolved.render(&ManifestConfig::default()).unwrap()).unwrap();
+        for dependency in [
+            &manifest["dependencies"]["local"],
+            &manifest["target"]["cfg(windows)"]["dependencies"]["local"],
+            &manifest["patch"]["crates-io"]["local"],
+        ] {
+            assert_eq!(dependency["path"].as_str(), Some(path));
+        }
+    }
+}
+
+#[test]
+fn generated_paths_match_canonical_sources_and_runtime_aliases() {
+    let dir = tempfile::tempdir().unwrap();
+    let component = if cfg!(unix) {
+        "native \\ \"quoted\" paths"
+    } else {
+        "native ' paths"
+    };
+    let root = dir.path().join(component);
+    package(&root, "local", "local", "");
+    package(&root, "patched", "patched", "");
+    package(&root, "runtime", "venus", "");
+    package(
+        &root,
+        "app",
+        "app",
+        r#"
+[dependencies]
+local = { path = "../local/./" }
+venus = { path = "../runtime/./" }
+[target.'cfg(windows)'.dependencies]
+local = { path = "../local" }
+venus = { path = "../runtime" }
+[patch.crates-io]
+patched = { path = "../patched" }
+"#,
+    );
+    write(&root, "app/notebook.rs", "");
+    let notebook = root.join("app/notebook.rs");
+    let config = CompilerConfig {
+        venus_crate_path: Some(root.join("runtime")),
+        ..CompilerConfig::default()
+    };
+    let resolved = resolve(&notebook, "")
+        .with_runtime(&config, &notebook)
+        .unwrap();
+    let manifest: Table =
+        toml::from_str(&resolved.render(&ManifestConfig::default()).unwrap()).unwrap();
+    for (dependency, directory) in [
+        (&manifest["dependencies"]["local"], "local"),
+        (
+            &manifest["target"]["cfg(windows)"]["dependencies"]["local"],
+            "local",
+        ),
+        (&manifest["dependencies"]["venus"], "runtime"),
+        (
+            &manifest["target"]["cfg(windows)"]["dependencies"]["venus"],
+            "runtime",
+        ),
+        (&manifest["patch"]["crates-io"]["patched"], "patched"),
+    ] {
+        let expected = root.join(directory).canonicalize().unwrap();
+        assert_eq!(
+            dependency["path"].as_str(),
+            Some(expected.to_string_lossy().as_ref())
+        );
+        assert_eq!(Path::new(dependency["path"].as_str().unwrap()), expected);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_notebook_resolves_declarations_from_its_canonical_directory() {
+    let (dir, notebook) = symlinked_workspace();
+    let context = NotebookContext::for_notebook(&notebook).unwrap();
+    assert_eq!(
+        context.directory,
+        dir.path().join("member/notebooks").canonicalize().unwrap()
+    );
+    assert_eq!(
+        context.manifest,
+        Some(dir.path().join("member/Cargo.toml").canonicalize().unwrap())
+    );
+    let resolved = resolve(
+        &notebook,
+        "//! ```cargo\n//! [dependencies]\n//! internal-alias = { package = \"direct\", path = \"../../direct\" }\n//! ```",
+    );
+    let expected = dir.path().join("direct").canonicalize().unwrap();
+    assert_eq!(
+        Path::new(
+            resolved.dependencies["internal-alias"]["path"]
+                .as_str()
+                .unwrap()
+        ),
+        expected
+    );
 }

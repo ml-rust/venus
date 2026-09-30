@@ -135,7 +135,7 @@ pub(super) fn rebase_path(
         })?;
         table.insert(
             "path".into(),
-            Value::String(path.to_string_lossy().replace('\\', "/")),
+            Value::String(path.to_string_lossy().into_owned()),
         );
     }
     Ok(())

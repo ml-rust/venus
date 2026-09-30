@@ -69,3 +69,11 @@ path = "../direct"
 pub(super) fn resolve(path: &Path, source: &str) -> ResolvedManifest {
     ResolvedManifest::resolve(&NotebookContext::for_notebook(path).unwrap(), source).unwrap()
 }
+
+#[cfg(unix)]
+pub(super) fn symlinked_workspace() -> (TempDir, PathBuf) {
+    let (dir, notebook) = workspace();
+    let linked = dir.path().join("linked.rs");
+    std::os::unix::fs::symlink(notebook, &linked).unwrap();
+    (dir, linked)
+}

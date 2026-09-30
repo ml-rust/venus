@@ -202,7 +202,7 @@ fn generated_universe_and_standalone_binary_execute_workspace_aliases() {
     let (dir, notebook, config) = fixture();
     assert_eq!(
         find_notebook_manifest(&notebook),
-        Some(dir.path().join("member/Cargo.toml"))
+        Some(dir.path().join("member/Cargo.toml").canonicalize().unwrap())
     );
     let mut universe =
         UniverseBuilder::for_notebook(config.clone(), ToolchainManager::new().unwrap(), &notebook)
@@ -228,6 +228,36 @@ fn generated_universe_and_standalone_binary_execute_workspace_aliases() {
             .as_table()
             .unwrap()
             .contains_key("unused")
+    );
+    for (alias, directory) in [
+        ("internal-alias", "helper"),
+        ("optional-alias", "optional"),
+        ("blocked", "blocked"),
+        ("venus", "runtime"),
+    ] {
+        let expected = dir.path().join(directory).canonicalize().unwrap();
+        assert_eq!(
+            manifest["dependencies"][alias]["path"].as_str(),
+            Some(expected.to_string_lossy().as_ref())
+        );
+    }
+    for (alias, directory) in [("active-alias", "active"), ("inactive", "inactive")] {
+        let dependency = manifest["target"]
+            .as_table()
+            .unwrap()
+            .values()
+            .find_map(|target| target["dependencies"].get(alias))
+            .unwrap();
+        let expected = dir.path().join(directory).canonicalize().unwrap();
+        assert_eq!(
+            dependency["path"].as_str(),
+            Some(expected.to_string_lossy().as_ref())
+        );
+    }
+    let expected = dir.path().join("patch").canonicalize().unwrap();
+    assert_eq!(
+        manifest["patch"]["crates-io"]["patched-helper"]["path"].as_str(),
+        Some(expected.to_string_lossy().as_ref())
     );
     assert!(!universe.is_cache_valid());
     let previous_hash = universe.deps_hash();

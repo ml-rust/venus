@@ -16,7 +16,7 @@ impl ResolvedManifest {
         if let Some(path) = &config.venus_crate_path {
             venus.insert(
                 "path".into(),
-                Value::String(absolute(path)?.to_string_lossy().replace('\\', "/")),
+                Value::String(absolute(path)?.to_string_lossy().into_owned()),
             );
         } else {
             venus.insert("version".into(), Value::String("0.1".into()));

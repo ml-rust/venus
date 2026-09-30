@@ -1,6 +1,7 @@
 //! Generated notebook projects retain Cargo workspace dependency semantics.
 
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -66,9 +67,14 @@ fn host() -> String {
         .to_string()
 }
 
-fn cell_value(config: &CompilerConfig, root: &Path, expression: &str) -> i32 {
+fn cell_value(config: &CompilerConfig, root: &Path, expression: &str, deps_hash: u64) -> i32 {
     let extension = std::env::consts::DLL_EXTENSION;
-    let cell_path = root.join(format!("cell.{extension}"));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    expression.hash(&mut hasher);
+    let expression_hash = hasher.finish();
+    let cell_path = root.join(format!(
+        "cell_{expression_hash:x}_{deps_hash:x}.{extension}"
+    ));
     let source = root.join("cell.rs");
     fs::write(&source, format!("extern crate venus_universe;\nuse venus_universe::*;\n#[no_mangle] pub extern \"C\" fn cell_value() -> i32 {{ {expression} }}")).unwrap();
     let output = Command::new("rustc")
@@ -214,7 +220,8 @@ fn generated_universe_and_standalone_binary_execute_workspace_aliases() {
         cell_value(
             &config,
             dir.path(),
-            "internal_alias::value() + active_alias::value() + optional_alias::value() + patched_helper::value()"
+            "internal_alias::value() + active_alias::value() + optional_alias::value() + patched_helper::value()",
+            universe.deps_hash()
         ),
         46
     );
@@ -273,7 +280,8 @@ fn generated_universe_and_standalone_binary_execute_workspace_aliases() {
         cell_value(
             &config,
             dir.path(),
-            "internal_alias::value() + active_alias::value() + optional_alias::value() + patched_helper::value()"
+            "internal_alias::value() + active_alias::value() + optional_alias::value() + patched_helper::value()",
+            universe.deps_hash()
         ),
         86
     );
@@ -305,7 +313,8 @@ fn generated_universe_and_standalone_binary_execute_workspace_aliases() {
         cell_value(
             &config,
             dir.path(),
-            "internal_alias::value() + active_alias::value() + patched_helper::value()"
+            "internal_alias::value() + active_alias::value() + patched_helper::value()",
+            universe.deps_hash()
         ),
         84
     );

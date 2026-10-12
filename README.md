@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/venus.png" alt="Venus" width="640">
+
 # venus
 
 <h3>Reactive notebooks for Rust. Notebooks are plain `.rs` files.</h3>
@@ -49,6 +51,8 @@ Cells are functions marked with `#[venus::cell]`. Dependencies between cells com
 </div>
 
 Venus is a reactive notebook environment for Rust. It runs notebooks from `.rs` source files and serves them through a web UI. When an upstream cell changes, Venus marks its dependent cells dirty.
+
+![Venus Web UI](docs/images/screenshot.png)
 
 ## Security
 
@@ -125,6 +129,8 @@ pub fn total(numbers: &Vec<i32>) -> i32 {
 - **Markdown cells:** notes between code cells in the web UI.
 - **Jupyter export:** `venus sync` writes an `.ipynb` file for GitHub preview.
 - **Optional Cranelift:** the Cranelift backend speeds debug builds of cells. Without it, Venus uses the LLVM backend.
+
+![Markdown Features](docs/images/screenshot2.png)
 
 See [docs/widgets.md](docs/widgets.md) and [docs/render.md](docs/render.md) for details.
 

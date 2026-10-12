@@ -1,82 +1,94 @@
-# Venus
+<div align="center">
 
-![Venus](docs/images/venus.png)
+# venus
 
-A reactive notebook environment for Rust.
+<h3>Reactive notebooks for Rust. Notebooks are plain `.rs` files.</h3>
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+<p>
+Cells are functions marked with `#[venus::cell]`. Dependencies between cells come from function parameters, so rust-analyzer works on the notebook source.
+</p>
 
-## What is Venus?
+<p>
+  <a href="https://docs.rs/venus"><strong>Docs</strong></a>
+  ·
+  <a href="https://crates.io/crates/venus"><strong>Crate</strong></a>
+  ·
+  <a href="#cells"><strong>Cells</strong></a>
+  ·
+  <a href="#cli-commands"><strong>CLI</strong></a>
+  ·
+  <a href="#quick-start"><strong>Example</strong></a>
+  ·
+  <a href="CONTRIBUTING.md"><strong>Contributing</strong></a>
+</p>
 
-Venus lets you write Rust notebooks as regular `.rs` files with full IDE support. Cells are functions marked with `#[venus::cell]`, and dependencies between cells are automatically inferred from function parameters.
+<p>
+  <a href="https://discord.gg/jBhFk9kHPg">
+    <img src="https://img.shields.io/discord/1453357769720594543?label=Discord&logo=discord&logoColor=white&color=5865F2" alt="Join the Discord">
+  </a>
+</p>
 
-![Venus Web UI](docs/images/screenshot.png)
+<p>
+  <a href="https://github.com/ml-rust/venus/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/ml-rust/venus/ci.yml?branch=main&label=ci" alt="CI status">
+  </a>
+  <a href="https://crates.io/crates/venus">
+    <img src="https://img.shields.io/crates/v/venus" alt="crates.io">
+  </a>
+  <a href="https://docs.rs/venus">
+    <img src="https://img.shields.io/docsrs/venus" alt="docs.rs">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/crates/l/venus" alt="License">
+  </a>
+  <a href="https://github.com/ml-rust/venus/stargazers">
+    <img src="https://img.shields.io/github/stars/ml-rust/venus?style=social" alt="GitHub stars">
+  </a>
+</p>
 
-## ⚠️ Security Warning
+</div>
 
-**Venus executes arbitrary Rust code with full system access.**
+Venus is a reactive notebook environment for Rust. It runs notebooks from `.rs` source files and serves them through a web UI. When an upstream cell changes, Venus marks its dependent cells dirty.
 
-- ✅ **Safe for**: Local development, testing, learning
-- ❌ **NOT safe for**: Production, shared servers, untrusted code
-- 🔒 **Cloud deployments**: Providers MUST use containers/VMs for isolation
+## Security
 
-Venus provides NO sandboxing. Cells can access files, network, and spawn processes.
-**You are responsible for running Venus in a secure environment.**
+Venus executes arbitrary Rust code with full system access. It provides no sandboxing. Cells can read and write files, open network connections, and spawn processes.
 
-See [SECURITY.md](SECURITY.md) for details.
+- Use Venus for local development, testing, and learning.
+- Do not run Venus on production servers, shared servers, or with untrusted code.
+- Cloud providers must isolate Venus in containers or virtual machines.
 
-## Features
-
-- **Interactive web UI** - Monaco editor with syntax highlighting, cell outputs, and execution status
-- **Native Rust files** - Write notebooks as `.rs` files with full rust-analyzer support
-- **Reactive dependency tracking** - Dependent cells marked dirty when upstream changes
-- **Fast compilation** - Cranelift codegen backend with smart caching (only recompiles when source changes)
-- **Hot reload** - Run modified cells instantly without losing state from other cells
-- **Markdown cells** - Full markdown support with syntax highlighting, images, and links
-- **Interactive widgets** - Sliders, text inputs, dropdowns, and checkboxes
-- **Rich output** - Render HTML, images, tables, and custom formats
-- **Jupyter export** - Generate `.ipynb` files for GitHub preview
-
-### Markdown Support
-
-Venus supports rich markdown cells with full GitHub Flavored Markdown syntax:
-
-![Markdown Features](docs/images/screenshot2.png)
-
-- **Text formatting** - Bold, italic, code blocks with syntax highlighting
-- **Links and images** - External URLs and embedded images
-- **Code blocks** - Multi-language syntax highlighting
-- **Lists and tables** - Organized documentation
+You are responsible for running Venus in a secure environment. See [SECURITY.md](SECURITY.md) for details.
 
 ## Quick Start
 
+Install the `venus` and `venus-worker` binaries:
+
 ```bash
-# Install Venus
 cargo install venus
-
-# Create a new notebook (adds to Cargo.toml for LSP support)
-venus new my_notebook
-
-# Or create as workspace member
-venus new my_notebook --workspace
-
-# Run the notebook
-venus run my_notebook.rs
-
-# Start the interactive server
-venus serve my_notebook.rs
 ```
 
-Venus automatically creates/updates `Cargo.toml` to enable rust-analyzer LSP support.
+Create a notebook, run it, and start the web server:
 
-Then open `http://localhost:8080` in your browser.
+```bash
+venus new hello
+venus run hello.rs
+venus serve hello.rs
+```
 
-## Example
+`venus new` adds the notebook as a binary to `Cargo.toml`. This enables rust-analyzer support. Open `http://localhost:8080` in your browser to use the web UI.
+
+### Example
 
 ```rust
 use venus::prelude::*;
 
-/// Configuration for the analysis
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub count: i32,
+}
+
+/// Analysis config
 #[venus::cell]
 pub fn config() -> Config {
     Config { count: 10 }
@@ -95,59 +107,72 @@ pub fn total(numbers: &Vec<i32>) -> i32 {
 }
 ```
 
+## Cells
+
+- A cell is a function marked with `#[venus::cell]`.
+- A parameter name refers to the cell with that name. In the example, `numbers` reads the `config` cell.
+- The return type is the cell output that other cells read.
+- Each `///` doc comment becomes the cell description in the UI.
+
+## Features
+
+- **Web UI:** Monaco editor, cell outputs, and execution status.
+- **Native Rust files:** notebooks are `.rs` files with full rust-analyzer support.
+- **Reactive dependencies:** Venus marks dependent cells dirty when an upstream cell changes.
+- **Hot reload:** modified cells re-run and keep state from the other cells.
+- **Widgets:** `input_slider`, `input_text`, `input_select`, and `input_checkbox` build interactive inputs.
+- **Rich output:** the `Render` trait produces text, HTML, image, and JSON output. The `polars` feature renders DataFrames. The `image` feature renders PNG output.
+- **Markdown cells:** notes between code cells in the web UI.
+- **Jupyter export:** `venus sync` writes an `.ipynb` file for GitHub preview.
+- **Optional Cranelift:** the Cranelift backend speeds debug builds of cells. Without it, Venus uses the LLVM backend.
+
+See [docs/widgets.md](docs/widgets.md) and [docs/render.md](docs/render.md) for details.
+
+### Optional: Cranelift backend
+
+Install the Cranelift component on nightly:
+
+```bash
+rustup toolchain install nightly
+rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+```
+
+Venus detects the component and uses it when available. No config is needed.
+
 ## CLI Commands
 
-| Command                   | Description                  |
-| ------------------------- | ---------------------------- |
-| `venus run <notebook>`    | Execute notebook headlessly  |
-| `venus serve <notebook>`  | Start interactive web server |
-| `venus sync <notebook>`   | Generate `.ipynb` file       |
-| `venus build <notebook>`  | Build standalone binary      |
-| `venus new <name>`        | Create new notebook          |
-| `venus export <notebook>` | Export to standalone HTML    |
-| `venus watch <notebook>`  | Auto-run on file changes     |
+| Command                   | Description                                   | Flags                                        |
+| ------------------------- | --------------------------------------------- | -------------------------------------------- |
+| `venus run <notebook>`    | Run the notebook headlessly               | `--cell <name>`, `--release`                 |
+| `venus serve <path>`      | Start the interactive web server              | `-p, --port <port>` (default `8080`)         |
+| `venus sync <notebook>`   | Generate an `.ipynb` file                     | `-w, --watch`                                |
+| `venus build <notebook>`  | Build a standalone binary                     | `-o, --output <path>`, `--release`           |
+| `venus new <name>`        | Create a notebook from a template             | `--workspace`                                |
+| `venus export <notebook>` | Export the notebook as a standalone HTML file | `-o, --output <path>`, `--release`, `--dark` |
+| `venus watch <notebook>`  | Run the notebook on file changes              | `--cell <name>`, `--release`, `--clear`      |
+
+Pass `-v` or `--verbose` with any subcommand for verbose logging. The `--release` flag uses the LLVM backend with optimizations. `venus new --workspace` creates the notebook as a workspace member in a separate directory.
 
 ## Documentation
 
-See the [docs](docs/) directory for detailed documentation:
-
-- [Installation](docs/installation.md) - Platform-specific setup instructions
-- [Getting Started](docs/getting-started.md) - Create your first notebook
-- [How It Works](docs/how-it-works.md) - Internal execution model and architecture
-- [API Reference](docs/api.md) - Build custom frontends
-- [Deployment](docs/deployment.md) - Production deployment options
-- [Cells](docs/cells.md) - Cell syntax and dependencies
-- [Widgets](docs/widgets.md) - Interactive inputs
-- [CLI Reference](docs/cli.md) - Command-line interface
-- [Render Trait](docs/render.md) - Custom output formatting
-- [API Stability](STABILITY.md) - Versioning and breaking change policy
-
-## Development Setup
-
-```bash
-# Install stable Rust
-rustup install stable
-
-# Install nightly + Cranelift backend (required for fast compilation)
-rustup install nightly
-rustup component add rustc-codegen-cranelift-preview --toolchain nightly
-
-# Run tests
-cargo test --workspace
-
-# Lint
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-> **Note:** The Cranelift codegen backend is used for fast debug compilation of notebook cells.
-> Integration tests require nightly with the Cranelift component installed.
-> Tests run on Linux, macOS, and Windows.
+- [Installation](docs/installation.md): platform setup and the optional Cranelift backend
+- [Getting Started](docs/getting-started.md): create your first notebook
+- [How It Works](docs/how-it-works.md): execution model and architecture
+- [Cells](docs/cells.md): cell syntax and dependencies
+- [Widgets](docs/widgets.md): interactive inputs
+- [Render Trait](docs/render.md): custom output formatting
+- [CLI Reference](docs/cli.md): command-line flags
+- [API Reference](docs/api.md): build custom frontends
+- [Deployment](docs/deployment.md): deployment guidance
+- [FAQ](docs/FAQ.md) and [Troubleshooting](docs/troubleshooting.md)
+- [API Stability](STABILITY.md): versioning and breaking change policy
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and checks.
+
+Questions and design discussion happen on [Discord](https://discord.gg/jBhFk9kHPg).
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+Licensed under Apache-2.0. See [LICENSE](LICENSE).

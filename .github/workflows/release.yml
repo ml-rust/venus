@@ -1,10 +1,36 @@
+# Manual distribution workflow. Push a v* tag first. `Release Prepare` checks the
+# tag and runs the full suite. Then run this workflow with that tag.
+#
+# Stages:
+#   publish_crate   -> crates.io: venus-macros and venus-core, venus-sync,
+#                      venus-server, venus
+#   github_release  -> GitHub Release, with the changelog section as the body
+#                      and CLI archives for five targets attached
+#
+# Each stage is idempotent and selectable alone. The publish stage skips a version
+# already on crates.io. The release stage overwrites the release in place. After an
+# error, re-dispatch with only the stage that errored on.
+#
+# Required secret: CARGO_REGISTRY_TOKEN, readable from environment `crates-io`.
+
 name: Release
-run-name: Release ${{ github.ref_name }}
+run-name: Release ${{ inputs.tag }}
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, e.g. v0.1.4"
+        required: true
+        type: string
+      publish_crate:
+        description: "Publish the venus workspace crates to crates.io"
+        type: boolean
+        default: true
+      github_release:
+        description: "Create the GitHub Release"
+        type: boolean
+        default: true
 
 concurrency:
   group: release
@@ -17,104 +43,39 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── Validate tag ─────────────────────────────────────────────────────────────
+  # Always runs, so the dispatched tag gets the same check as the prepare run.
   validate-version:
-    name: Validate Version Tag
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      is_full_release: ${{ steps.version.outputs.is_full_release }}
-    steps:
-      - uses: actions/checkout@v6
+    uses: ./.github/workflows/release-validate.yml
+    with:
+      ref: ${{ inputs.tag }}
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Validate tag against Cargo.toml
-        id: version
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          TAG_VERSION="${TAG#v}"
-
-          CARGO_VERSION=$(cargo metadata --no-deps --format-version=1 \
-            | jq -r '.packages[] | select(.name == "venus") | .version')
-          CARGO_BASE=$(echo "$CARGO_VERSION" | grep -oP '^\d+\.\d+\.\d+')
-
-          echo "Tag version:        $TAG_VERSION"
-          echo "Cargo.toml version: $CARGO_VERSION"
-          echo "Cargo.toml base:    $CARGO_BASE"
-
-          if [[ ! "$TAG_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
-            echo "::error::Invalid tag format '$TAG'. Expected: vX.Y.Z or vX.Y.Z-label.N"
-            exit 1
-          fi
-
-          TAG_BASE="${BASH_REMATCH[1]}"
-
-          if [[ "$TAG_BASE" != "$CARGO_BASE" ]]; then
-            echo "::error::Base version mismatch! Tag '$TAG_BASE' != Cargo.toml '$CARGO_BASE'"
-            exit 1
-          fi
-
-          # Full release = no hyphen suffix (v0.1.0, not v0.1.0-beta.1)
-          if [[ "$TAG_VERSION" == *-* ]]; then
-            echo "is_full_release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_full_release=true" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-
-  # ── CI gate ──────────────────────────────────────────────────────────────────
-  ci:
-    name: CI Gate
-    needs: validate-version
-    uses: ./.github/workflows/ci.yml
-
-  # ── Publish crates to crates.io ──────────────────────────────────────────────
-  publish-crates:
+  # ── crates.io ───────────────────────────────────────────────────────────────
+  publish-crate:
     name: Publish to crates.io
-    needs: [validate-version, ci]
+    needs: validate-version
+    if: inputs.publish_crate
     runs-on: ubuntu-latest
-    environment: crates.io
-    permissions:
-      contents: read
+    environment: crates-io
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
 
       - name: Set version from tag
-        run: |
-          VERSION="${{ needs.validate-version.outputs.version }}"
-          CURRENT=$(cargo metadata --no-deps --format-version=1 \
-            | jq -r '.packages[] | select(.name == "venus") | .version')
-          if [[ "$VERSION" != "$CURRENT" ]]; then
-            sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+        run: bash scripts/ci/stamp_version.sh "${{ needs.validate-version.outputs.version }}"
 
-            if [[ "$VERSION" == *-* ]]; then
-              sed -i -E 's/(venus(-(macros|core|sync|server))? = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
-              echo "Updated internal dep versions to =$VERSION"
-            fi
-
-            echo "Updated workspace version: $CURRENT -> $VERSION"
-          else
-            echo "Version already matches, no change needed"
-          fi
-
-      - name: Publish crates
+      # Publishes in dependency tiers. Each tier waits until the index serves all
+      # its crates. A crate already on crates.io is skipped, so a re-run resumes.
+      - name: Publish workspace crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          # Tier 1: no internal venus dependencies
-          TIER1="venus-macros venus-core"
-          # Tier 2: depends on venus-core
-          TIER2="venus-sync"
-          # Tier 3: depends on venus-core + venus-sync
-          TIER3="venus-server"
-          # Tier 4: top-level CLI binary
-          TIER4="venus"
+          set -euo pipefail
+          VERSION=$(cargo metadata --no-deps --format-version=1 \
+            | jq -r '.packages[] | select(.name == "venus") | .version')
 
           is_published() {
             curl -sf \
@@ -122,53 +83,60 @@ jobs:
               "https://crates.io/api/v1/crates/$1/$2" > /dev/null 2>&1
           }
 
+          # `cargo publish` resolves dependencies against the sparse index. The
+          # API can list a version before the index serves it.
+          in_index() {
+            local crate="$1"
+            curl -sf "https://index.crates.io/${crate:0:2}/${crate:2:2}/${crate}" \
+              | jq -e --arg v "$VERSION" 'select(.vers == $v)' > /dev/null
+          }
+
           wait_for() {
-            local crate="$1" version="$2"
-            echo -n "  Waiting for $crate@$version..."
-            for i in $(seq 1 30); do
-              if is_published "$crate" "$version"; then
-                echo " ready"
+            local crate="$1"
+            echo "  Waiting for $crate@$VERSION in the index..."
+            for _ in $(seq 1 60); do
+              if in_index "$crate"; then
+                echo "  $crate@$VERSION is in the index"
                 return 0
               fi
               sleep 5
             done
-            echo " timed out!"
+            echo "::error::$crate@$VERSION did not reach the crates.io index. Re-run this stage."
             return 1
           }
 
           publish_tier() {
-            local tier_name="$1"; shift
-            local crates=("$@")
-            local need_wait=()
+            local tier_name="$1"
+            shift
+            local crate
 
             echo "::group::Tier: $tier_name"
-            for crate in "${crates[@]}"; do
-              VERSION=$(cargo metadata --no-deps --format-version=1 \
-                | jq -r --arg name "$crate" '.packages[] | select(.name == $name) | .version')
+            for crate in "$@"; do
               if is_published "$crate" "$VERSION"; then
-                echo "  $crate@$VERSION already published — skipping"
+                echo "  $crate@$VERSION already published, skipping"
               else
                 echo "  Publishing $crate@$VERSION..."
                 cargo publish -p "$crate" --allow-dirty
-                need_wait+=("$crate:$VERSION")
               fi
             done
 
-            for entry in "${need_wait[@]}"; do
-              wait_for "${entry%%:*}" "${entry##*:}"
+            for crate in "$@"; do
+              wait_for "$crate"
             done
             echo "::endgroup::"
           }
 
-          publish_tier "1 (no internal deps)"  $TIER1
-          publish_tier "2 (depends on tier 1)" $TIER2
-          publish_tier "3 (depends on tier 2)" $TIER3
-          publish_tier "4 (CLI binary)"        $TIER4
+          publish_tier "1 (no internal deps)" venus-macros venus-core
+          publish_tier "2 (depends on tier 1)" venus-sync
+          publish_tier "3 (depends on tier 2)" venus-server
+          publish_tier "4 (CLI binary)" venus
 
-  # ── Build CLI binaries ───────────────────────────────────────────────────────
+  # ── CLI binaries ────────────────────────────────────────────────────────────
+  # Runs with the GitHub Release stage, which attaches these archives.
   build-cli:
     name: Build CLI (${{ matrix.label }})
-    needs: [validate-version, ci]
+    needs: validate-version
+    if: inputs.github_release
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -190,35 +158,22 @@ jobs:
             target: x86_64-pc-windows-msvc
             label: windows-x64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: release-${{ matrix.target }}
 
       - name: Set version from tag
         shell: bash
-        run: |
-          VERSION="${{ needs.validate-version.outputs.version }}"
-          CURRENT=$(cargo metadata --no-deps --format-version=1 \
-            | jq -r '.packages[] | select(.name == "venus") | .version')
-          if [[ "$VERSION" != "$CURRENT" ]]; then
-            perl -i -pe "if (!\$done && /^version = \"/) { s/^version = \".*\"/version = \"$VERSION\"/; \$done=1 }" Cargo.toml
-
-            # For pre-release versions, pin internal dep requirements so semver
-            # "0.1.0" doesn't fail to match "0.1.0-beta.1"
-            if [[ "$VERSION" == *-* ]]; then
-              perl -i -pe 's/(venus(?:-(macros|core|sync|server))? = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
-              echo "Updated internal dep versions to =$VERSION"
-            fi
-
-            echo "Updated workspace version: $CURRENT -> $VERSION"
-          fi
+        run: bash scripts/ci/stamp_version.sh "${{ needs.validate-version.outputs.version }}"
 
       - name: Build release binary
         run: cargo build -p venus --release --target ${{ matrix.target }}
@@ -226,7 +181,7 @@ jobs:
       - name: Package (unix)
         if: runner.os != 'Windows'
         run: |
-          cd target/${{ matrix.target }}/release
+          cd "target/${{ matrix.target }}/release" || exit 1
           chmod +x venus
           tar czf venus-${{ needs.validate-version.outputs.version }}-${{ matrix.label }}.tar.gz venus
           ls -lh venus-*.tar.gz
@@ -238,7 +193,7 @@ jobs:
           cd target/${{ matrix.target }}/release
           Compress-Archive -Path venus.exe -DestinationPath venus-${{ needs.validate-version.outputs.version }}-${{ matrix.label }}.zip
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cli-${{ matrix.label }}
           path: |
@@ -246,30 +201,59 @@ jobs:
             target/${{ matrix.target }}/release/venus-*.zip
           retention-days: 1
 
-  # ── Create GitHub Release ─────────────────────────────────────────────────────
+  # ── GitHub Release ──────────────────────────────────────────────────────────
+  # Independent of publish-crate: a crates.io outage does not block the release.
   github-release:
     name: Create GitHub Release
-    needs: [validate-version, publish-crates, build-cli]
+    needs: [validate-version, build-cli]
+    if: inputs.github_release
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
 
       - name: Download binary artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ./artifacts
           pattern: "cli-*"
           merge-multiple: true
 
+      # The changelog is the release notes. `validate-version` already checks that
+      # this section exists and is non-empty.
+      - name: Build release notes from the changelog
+        env:
+          TAG: ${{ inputs.tag }}
+          BASE: ${{ needs.validate-version.outputs.base_version }}
+        run: |
+          set -euo pipefail
+          # `-l` is required: `git tag` with a pattern and no list flag is the
+          # create form, which errors and drops the compare link.
+          PREVIOUS_TAG=$(git tag -l --sort=-v:refname 'v*' | grep -v "^${TAG}$" | head -n 1 || true)
+
+          bash scripts/ci/changelog_section.sh "$BASE" /tmp/changelog-section.md
+
+          {
+            cat /tmp/changelog-section.md
+            echo
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              echo "**Full diff:** https://github.com/ml-rust/venus/compare/${PREVIOUS_TAG}...${TAG}"
+            else
+              echo "**Tree:** https://github.com/ml-rust/venus/tree/${TAG}"
+            fi
+          } > /tmp/release-notes.md
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: v${{ needs.validate-version.outputs.version }}
+          tag_name: ${{ inputs.tag }}
           name: Venus ${{ needs.validate-version.outputs.version }}
-          generate_release_notes: true
+          body_path: /tmp/release-notes.md
           draft: false
-          prerelease: ${{ contains(needs.validate-version.outputs.version, '-') }}
+          prerelease: ${{ needs.validate-version.outputs.is_full_release != 'true' }}
           files: artifacts/*
           fail_on_unmatched_files: true

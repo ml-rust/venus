@@ -1,0 +1,90 @@
+# Reusable tag check. release-prepare.yml calls it with the pushed tag.
+# release.yml calls it with the dispatched tag.
+
+name: Release Validate
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check (a v* tag)"
+        required: true
+        type: string
+    outputs:
+      version:
+        description: "Tag version without the leading v"
+        value: ${{ jobs.validate.outputs.version }}
+      is_full_release:
+        description: "true when the version carries no prerelease suffix"
+        value: ${{ jobs.validate.outputs.is_full_release }}
+      base_version:
+        description: "Tag version without any prerelease suffix, the CHANGELOG heading"
+        value: ${{ jobs.validate.outputs.base_version }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Check Version Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_full_release: ${{ steps.version.outputs.is_full_release }}
+      base_version: ${{ steps.version.outputs.base_version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+
+      - name: Check tag against the manifest
+        id: version
+        env:
+          TAG: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${TAG#v}"
+
+          METADATA=$(cargo metadata --no-deps --format-version=1)
+          CRATE_VERSION=$(jq -r '.packages[] | select(.name == "venus") | .version' <<< "$METADATA")
+
+          # Every publishable crate carries one version.
+          VERSIONS=$(jq -r '.packages[] | select(.publish != []) | .version' <<< "$METADATA" | sort -u)
+          if [[ "$VERSIONS" != "$CRATE_VERSION" ]]; then
+            echo "::error::Publishable crates hold different versions: ${VERSIONS//$'\n'/, }. Set one version in [workspace.package]."
+            exit 1
+          fi
+
+          echo "Tag version:   $TAG_VERSION"
+          echo "Crate version: $CRATE_VERSION"
+
+          CARGO_BASE=$(echo "$CRATE_VERSION" | grep -oP '^\d+\.\d+\.\d+')
+
+          if [[ ! "$TAG_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid tag format '$TAG'. Expected: vX.Y.Z or vX.Y.Z-label.N. Push a tag in that form."
+            exit 1
+          fi
+
+          TAG_BASE="${BASH_REMATCH[1]}"
+
+          if [[ "$TAG_BASE" != "$CARGO_BASE" ]]; then
+            echo "::error::Tag version '$TAG_BASE' differs from Cargo.toml version '$CARGO_BASE'. Set the manifest version, then re-tag."
+            exit 1
+          fi
+
+          # A full release has no hyphen suffix: v0.1.0, not v0.1.0-beta.1.
+          if [[ "$TAG_VERSION" == *-* ]]; then
+            echo "is_full_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_full_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$TAG_BASE" >> "$GITHUB_OUTPUT"
+
+      # A prerelease reads its base version: `v0.1.0-beta.1` needs `## [0.1.0]`.
+      - name: Require a changelog section
+        run: bash scripts/ci/changelog_section.sh "${{ steps.version.outputs.base_version }}"

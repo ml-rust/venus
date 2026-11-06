@@ -50,7 +50,17 @@ Cells are functions marked with `#[venus::cell]`. Dependencies between cells com
 
 </div>
 
-Venus is a reactive notebook environment for Rust. It runs notebooks from `.rs` source files and serves them through a web UI. When an upstream cell changes, Venus marks its dependent cells dirty.
+Venus is a reactive notebook environment for Rust, for data exploration, prototyping, and teaching. It runs notebooks from `.rs` source files and serves them through a web UI. When an upstream cell changes, Venus marks its dependent cells dirty. Unlike Jupyter with the `evcxr_jupyter` kernel, a Venus notebook is a normal Rust file, not `.ipynb` JSON. Venus writes `.ipynb` only for preview.
+
+- **Language:** all code is Rust. Venus compiles each cell to a native library, with LLVM or the optional Cranelift backend. No Python or Jupyter kernel is needed.
+- **Requirements:** Rust 1.85 or later on Linux, macOS, or Windows. Cranelift needs a nightly toolchain component.
+- **Output:** text, HTML, images, and JSON through the `Render` trait. DataFrames need the `polars` feature.
+- **Built on:** `syn` for parsing cells, `petgraph` for the dependency graph, `salsa` for incremental computation, and `axum` for the web server.
+
+### Not supported yet
+
+- Async cells. A cell is a synchronous function, so block on a future inside the cell.
+- Sandboxing. See [Security](#security).
 
 ![Venus Web UI](docs/images/screenshot.png)
 

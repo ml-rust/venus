@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Reactive notebook environment for Rust"
+description = "Reactive notebooks for Rust: plain .rs files with hot reload, a web UI and .ipynb export"
+keywords = ["notebook", "jupyter", "reactive", "data-science"]
+categories = ["development-tools", "science"]
 include = [
     "src/**/*",
     "cli/**/*",

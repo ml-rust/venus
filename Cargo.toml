@@ -25,9 +25,9 @@ venus-sync = { path = "crates/venus-sync", version = "0" }
 venus-server = { path = "crates/venus-server", version = "0" }
 
 # Parsing and AST
-toml = "0.8"
+toml = "1.1"
 semver = "1.0"
-syn = { version = "2.0", features = [
+syn = { version = "3.0", features = [
     "full",
     "parsing",
     "visit",
@@ -45,7 +45,7 @@ serde_json = "1.0"
 rkyv = "0.8"                                       # default features include bytecheck for validation
 
 # Incremental computation
-salsa = "0.25"
+salsa = "0.28"
 
 # Dynamic loading
 libloading = "0.9"
@@ -77,22 +77,22 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libc = "0.2"
 which = "8.0"
-dirs = "6.0"
+dirs = "7.0"
 
 # Parallelism
 rayon = "1.10"
 
 # Encoding
-base64 = "0.22"
+base64 = "0.23"
 
 # Web server
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors"] }
+tower-http = { version = "0.7", features = ["fs", "cors"] }
 
 # File watching
 notify = "8.0"
-notify-debouncer-mini = "0.6"
+notify-debouncer-mini = "0.7"
 
 # WebSocket
 futures = "0.3"
